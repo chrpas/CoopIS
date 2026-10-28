@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: coopis_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: coopis_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../database/scripts:/docker-entrypoint-initdb.d
+
+  api:
+    build:
+      context: ../../
+      dockerfile: deploy/compose/Dockerfile.api
+    container_name: coopis_api
+    restart: always
+    environment:
+      ConnectionStrings__CoopDbConnection: "Host=postgres;Port=5432;Database=coopis_db;Username=postgres;Password=postgrespassword"
+      ASPNETCORE_ENVIRONMENT: "Production"
+    depends_on:
+      - postgres
+    ports:
+      - "5208:8080"
+
+  web:
+    build:
+      context: ../../
+      dockerfile: deploy/compose/Dockerfile.web
+    container_name: coopis_web
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
