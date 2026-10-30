@@ -9,6 +9,7 @@ using CoopIS.Application.Services;
 using CoopIS.Infrastructure.Data;
 using CoopIS.Infrastructure.Security;
 using CoopIS.Infrastructure.Services;
+using CoopIS.Infrastructure.Services.RemoteAccess;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -66,6 +67,8 @@ builder.Services.AddScoped<IContributionService, ContributionService>();
 builder.Services.AddScoped<IAccountingService, AccountingService>();
 builder.Services.AddScoped<IDistributionService, DistributionService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddSingleton<IRemoteAccessService, NgrokRemoteAccessService>();
+builder.Services.AddHostedService<RemoteAccessBackgroundService>();
 
 // 4. Rate Limiting for Brute-Force Protection
 builder.Services.AddRateLimiter(options =>
@@ -118,6 +121,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy.WithOrigins("http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://localhost")
+              .SetIsOriginAllowed(_ => true)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();

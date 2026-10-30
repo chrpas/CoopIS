@@ -34,6 +34,15 @@ Enterprise-grade Cooperative Financial Management & Lending Platform engineered 
   - **30% Patronage Refund**: Returned to borrowers proportional to active loan utilization.
   - **5% Management Reserve**: Reserved for institutional development and contingencies.
 
+### 🌐 Secure Remote Access (`/settings/users` -> Remote Access)
+- Secure, encrypted **ngrok HTTPS tunnel** allowing authorized operators and officers to manage CoopIS from mobile phones or offsite devices without port forwarding or static public IPs.
+- Live tunnel management directly within the UI:
+  - Auto-detection of system `ngrok` executable.
+  - One-click Start/Stop controls.
+  - Copyable public HTTPS URL + Instant mobile scan via QR code.
+  - Configurable persistent ngrok Authtoken and optional auto-start on application launch.
+  - Admin-only access controls (`[Authorize(Roles = "Admin")]`).
+
 ---
 
 ## 🏗️ Architecture
@@ -69,6 +78,14 @@ This script will:
 |---|---|---|---|---|
 | **Administrator** | `admin` | `Admin123!` | `/dashboard` | Full system access across all 6 modules |
 | **Loan Officer** | `loanuser` | `User123!` | `/loans` | Loan portfolio management only (403 on other modules) |
+
+### 🌐 Enabling Remote Access (ngrok)
+
+1. Log in as **Administrator** (`admin` / `Admin123!`).
+2. Navigate to **Settings & Users** (`/settings/users`) and select the **Remote Access (ngrok)** tab.
+3. Paste your free **ngrok Authtoken** (from [dashboard.ngrok.com](https://dashboard.ngrok.com/get-started/your-authtoken)) and click **Save Configuration**.
+4. Click **Start Remote Access**. The application will launch an encrypted tunnel and display your live public URL (e.g. `https://xxxx-xx-xx-xx.ngrok-free.app`).
+5. Click **Scan with Phone** to open a QR code for mobile testing, or copy and share the link with authorized personnel.
 
 ---
 

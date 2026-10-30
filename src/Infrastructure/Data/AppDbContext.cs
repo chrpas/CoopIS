@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<BankReconciliation> BankReconciliations => Set<BankReconciliation>();
     public DbSet<SurplusDistribution> SurplusDistributions => Set<SurplusDistribution>();
     public DbSet<MemberSurplusLedger> MemberSurplusLedgers => Set<MemberSurplusLedger>();
+    public DbSet<AppSetting> AppSettings => Set<AppSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -158,6 +159,13 @@ public class AppDbContext : DbContext
                 .WithMany(m => m.SurplusLedgers)
                 .HasForeignKey(e => e.MemberId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // 10. AppSetting
+        modelBuilder.Entity<AppSetting>(entity =>
+        {
+            entity.HasKey(e => e.Key);
+            entity.Property(e => e.Key).HasMaxLength(128);
         });
     }
 }

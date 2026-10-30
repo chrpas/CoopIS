@@ -33,6 +33,38 @@ export interface LoginResponse {
   user: User;
 }
 
+export enum RemoteAccessStatusState {
+  Disabled = "Disabled",
+  Starting = "Starting",
+  Running = "Running",
+  Stopped = "Stopped",
+  Error = "Error",
+  NgrokNotFound = "NgrokNotFound",
+}
+
+export interface RemoteAccessStatus {
+  state: RemoteAccessStatusState;
+  publicUrl?: string | null;
+  localAddress?: string | null;
+  startedAt?: string | null;
+  errorMessage?: string | null;
+}
+
+export interface RemoteAccessSettings {
+  enabled: boolean;
+  ngrokPath: string;
+  hasAuthtoken: boolean;
+  autoStart: boolean;
+  ngrokVersion?: string | null;
+  isNgrokDetected: boolean;
+}
+
+export interface UpdateRemoteAccessSettingsRequest {
+  ngrokPath?: string;
+  authtoken?: string;
+  autoStart?: boolean;
+}
+
 export type MemberStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 export type LoanStatus = "PENDING_APPROVAL" | "APPROVED" | "ACTIVE" | "PAID" | "DEFAULTED";
 export type PaymentChannel = "PAYROLL_DEDUCTION" | "CASH" | "BANK_TRANSFER";

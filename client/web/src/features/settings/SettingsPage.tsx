@@ -17,13 +17,15 @@ import {
   Percent,
   Layers,
   Shield,
+  Globe,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { UserAccount, UserRole, CreateUserPayload } from "../../types";
 import { userService } from "../../services/userService";
 import { CreateUserModal } from "./CreateUserModal";
+import { RemoteAccessTab } from "./RemoteAccessTab";
 
-type SettingsTab = "users" | "general" | "security";
+type SettingsTab = "users" | "general" | "security" | "remote-access";
 
 export const SettingsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
@@ -311,6 +313,18 @@ export const SettingsPage: React.FC = () => {
         >
           <Shield className="w-4 h-4" />
           <span>Permissions Matrix</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("remote-access")}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
+            activeTab === "remote-access"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+          }`}
+        >
+          <Globe className="w-4 h-4" />
+          <span>Remote Access (ngrok)</span>
         </button>
       </div>
 
@@ -861,6 +875,9 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* TAB 4: REMOTE ACCESS (NGROK) */}
+      {activeTab === "remote-access" && <RemoteAccessTab />}
 
       {/* CREATE USER MODAL */}
       <CreateUserModal
