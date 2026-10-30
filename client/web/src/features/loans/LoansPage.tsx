@@ -4,6 +4,8 @@ import { api } from "../../services/api";
 import { Loan, Member, LoanStatus, AmortizationScheduleItem } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { LoanOriginationWizard } from "./LoanOriginationWizard";
+import { RecordRepaymentModal } from "./RecordRepaymentModal";
+import { LoanPenaltiesModal } from "./LoanPenaltiesModal";
 import {
   Plus,
   CheckCircle,
@@ -12,14 +14,19 @@ import {
   FileText,
   Calendar,
   X,
+  AlertCircle,
+  CreditCard,
+  CheckCircle2,
 } from "lucide-react";
-
 
 export const LoansPage: React.FC = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [showWizard, setShowWizard] = useState(false);
   const [selectedLoanForSchedule, setSelectedLoanForSchedule] = useState<Loan | null>(null);
+  const [selectedCutoffForRepayment, setSelectedCutoffForRepayment] = useState<AmortizationScheduleItem | null>(null);
+  const [isRepaymentModalOpen, setIsRepaymentModalOpen] = useState(false);
+  const [isPenaltiesModalOpen, setIsPenaltiesModalOpen] = useState(false);
 
   const { data: loans = [], isLoading } = useQuery<Loan[]>({
     queryKey: ["loans"],
@@ -33,8 +40,8 @@ export const LoansPage: React.FC = () => {
     queryKey: ["members-lookup"],
     queryFn: async () => {
       try {
-        const res = await api.get<Member[]>("/members");
-        return res.data;
+        const res = await api.get<any>("/members?pageSize=100");
+        return Array.isArray(res.data) ? res.data : (res.data?.items ?? []);
       } catch {
         return [];
       }
@@ -67,6 +74,11 @@ export const LoansPage: React.FC = () => {
       }
     },
   });
+
+  const totalLatePenaltiesCollected = loans.reduce(
+    (acc, l) => acc + Number(l.totalLatePenalties || 0),
+    0
+  );
 
   const getStatusBadge = (status: LoanStatus) => {
     switch (status) {
@@ -115,7 +127,7 @@ export const LoansPage: React.FC = () => {
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Automated term tiering (2-8 months), 5% upfront flat interest, and semi-monthly payroll amortizations.
+            Automated term tiering (2-8 months), 5% upfront flat interest, and semi-monthly payroll amortizations with late penalty tracking.
           </p>
         </div>
 
@@ -128,8 +140,8 @@ export const LoansPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Loan Policy Summary Card */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      {/* Loan Policy & Penalty Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-xs">
           <div className="text-[11px] font-semibold text-slate-400 uppercase">Ceiling & Tiers</div>
           <div className="text-base font-bold text-slate-900 mt-0.5">₱80,000 PHP Max</div>
@@ -149,6 +161,16 @@ export const LoansPage: React.FC = () => {
           <div className="text-[11px] font-semibold text-slate-400 uppercase">Active Portfolio</div>
           <div className="text-base font-bold text-slate-900 mt-0.5">{loans.length} Loans</div>
           <div className="text-[11px] text-slate-500">Fully Tracked</div>
+        </div>
+        <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl shadow-xs">
+          <div className="text-[11px] font-semibold text-amber-800 uppercase flex items-center justify-between">
+            <span>Late Penalties</span>
+            <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold">2% Rate</span>
+          </div>
+          <div className="text-base font-extrabold text-amber-950 mt-0.5 font-mono">
+            ₱{totalLatePenaltiesCollected.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+          </div>
+          <div className="text-[11px] text-amber-700">Cumulative Co-op Income</div>
         </div>
       </div>
 
@@ -171,6 +193,7 @@ export const LoansPage: React.FC = () => {
                   <th className="py-3 px-4 text-right">Upfront Int. (5%)</th>
                   <th className="py-3 px-4 text-right">Net Released</th>
                   <th className="py-3 px-4 text-right">Amortization</th>
+                  <th className="py-3 px-4 text-right">Late Penalties</th>
                   <th className="py-3 px-4 text-center">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
@@ -198,25 +221,38 @@ export const LoansPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-right text-amber-700 font-medium">
                       ₱{Number(loan.interestEarned).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="py-3.5 px-4 text-right text-emerald-700 font-bold">
+                    <td className="py-3.5 px-4 text-right text-emerald-700 font-medium">
                       ₱{Number(loan.releasedAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                     </td>
-                    <td className="py-3.5 px-4 text-right text-slate-700 font-medium">
-                      ₱{Number(loan.cutoffPaymentAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      <div className="text-[10px] text-slate-400">{loan.cutoffsCount} cutoffs ({loan.termMonths} mos)</div>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="font-semibold text-slate-900">
+                        ₱{Number(loan.cutoffPaymentAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        {loan.cutoffsCount} cutoffs ({loan.termMonths} mos)
+                      </div>
                     </td>
-                    <td className="py-3.5 px-4 text-center">{getStatusBadge(loan.status)}</td>
+                    <td className="py-3.5 px-4 text-right">
+                      {Number(loan.totalLatePenalties || 0) > 0 ? (
+                        <span className="font-mono font-bold text-amber-800 text-xs px-2 py-0.5 rounded bg-amber-50 border border-amber-200">
+                          ₱{Number(loan.totalLatePenalties).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 text-xs">₱0.00</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      {getStatusBadge(loan.status)}
+                    </td>
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => setSelectedLoanForSchedule(loan)}
-                          title="View Amortization Schedule"
-                          className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors inline-flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded transition-colors cursor-pointer flex items-center gap-1"
                         >
                           <Calendar className="w-3.5 h-3.5 text-slate-500" />
                           Schedule
                         </button>
-
                         {loan.status === "PENDING_APPROVAL" && (
                           <button
                             onClick={() =>
@@ -273,51 +309,74 @@ export const LoansPage: React.FC = () => {
         members={members}
       />
 
-      {/* Amortization Schedule Modal */}
+      {/* Amortization Schedule & Repayment Engine Modal */}
       {selectedLoanForSchedule && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-100 overflow-hidden">
+          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Calendar className="w-5 h-5 text-emerald-400" />
                 <div>
                   <h3 className="font-bold text-sm">Amortization Schedule: {selectedLoanForSchedule.loanReference}</h3>
                   <p className="text-xs text-slate-300">
-                    Borrower: {selectedLoanForSchedule.memberName} • ₱{Number(selectedLoanForSchedule.principalAmount).toLocaleString()} Principal
+                    Borrower: {selectedLoanForSchedule.memberName} • ₱{Number(selectedLoanForSchedule.principalAmount).toLocaleString()} Principal • 3-Day Grace Policy
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedLoanForSchedule(null)}
-                className="text-slate-400 hover:text-white p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsPenaltiesModalOpen(true)}
+                  className="px-2.5 py-1.5 text-xs font-semibold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="View Late Penalties Audit"
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  Audit Penalties
+                </button>
+                <button
+                  onClick={() => setSelectedLoanForSchedule(null)}
+                  className="text-slate-400 hover:text-white p-1 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {/* Stats Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                 <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
                   <div className="text-[11px] text-slate-500 font-semibold uppercase">Cutoff Payment</div>
-                  <div className="text-base font-bold text-slate-900 mt-0.5">
+                  <div className="text-base font-bold text-slate-900 mt-0.5 font-mono">
                     ₱{Number(selectedLoanForSchedule.cutoffPaymentAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </div>
                 </div>
                 <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl">
                   <div className="text-[11px] text-amber-700 font-semibold uppercase">5% Upfront Int.</div>
-                  <div className="text-base font-bold text-amber-800 mt-0.5">
+                  <div className="text-base font-bold text-amber-800 mt-0.5 font-mono">
                     ₱{Number(selectedLoanForSchedule.interestEarned).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </div>
                 </div>
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
                   <div className="text-[11px] text-emerald-700 font-semibold uppercase">Net Disbursed</div>
-                  <div className="text-base font-bold text-emerald-800 mt-0.5">
+                  <div className="text-base font-bold text-emerald-800 mt-0.5 font-mono">
                     ₱{Number(selectedLoanForSchedule.releasedAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-3 bg-amber-100/70 border border-amber-300 rounded-xl">
+                  <div className="text-[11px] text-amber-900 font-semibold uppercase flex items-center justify-center gap-1">
+                    <Clock className="w-3 h-3 text-amber-700" /> Late Penalties Paid
+                  </div>
+                  <div className="text-base font-extrabold text-amber-950 mt-0.5 font-mono">
+                    ₱{Number(
+                      selectedLoanForSchedule.totalLatePenalties ||
+                        schedule.reduce((acc, s) => acc + (s.latePenaltyPaid || 0), 0)
+                    ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </div>
                 </div>
               </div>
 
-              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+              {/* Schedule Table */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
                 {isLoadingSchedule ? (
                   <div className="p-8 text-center text-xs text-slate-500">Loading schedule items...</div>
                 ) : schedule.length === 0 ? (
@@ -332,51 +391,106 @@ export const LoansPage: React.FC = () => {
                         <th className="py-2.5 px-3">Cutoff Period</th>
                         <th className="py-2.5 px-3 text-right">Scheduled Principal</th>
                         <th className="py-2.5 px-3 text-right">Principal Paid</th>
-                        <th className="py-2.5 px-3 text-right">Remaining Balance</th>
-                        <th className="py-2.5 px-3 text-center">Status</th>
+                        <th className="py-2.5 px-3 text-right">Late Penalty (₱)</th>
+                        <th className="py-2.5 px-3 text-right">Remaining</th>
+                        <th className="py-2.5 px-3 text-center">Status & Delay</th>
+                        <th className="py-2.5 px-3 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {schedule.map((item) => (
-                        <tr key={item.installmentNumber} className="hover:bg-slate-50/70">
-                          <td className="py-2.5 px-3 font-semibold text-slate-600">{item.installmentNumber}</td>
-                          <td className="py-2.5 px-3 font-medium text-slate-900">
-                            <span className="px-2 py-0.5 rounded bg-slate-100 font-bold mr-1.5">
-                              {item.cutoffLabel}
-                            </span>
-                            <span className="text-slate-400">{new Date(item.cutoffDate).toLocaleDateString()}</span>
-                          </td>
-                          <td className="py-2.5 px-3 text-right font-bold text-slate-900">
-                            ₱{Number(item.scheduledPrincipal).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-2.5 px-3 text-right text-emerald-700 font-medium">
-                            ₱{Number(item.principalPaid).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-2.5 px-3 text-right text-slate-600 font-medium">
-                            ₱{Number(item.remainingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-2.5 px-3 text-center">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                item.status === "PAID"
-                                  ? "bg-emerald-100 text-emerald-800"
-                                  : item.status === "OVERDUE"
-                                  ? "bg-rose-100 text-rose-800"
-                                  : "bg-slate-100 text-slate-700"
-                              }`}
-                            >
-                              {item.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {schedule.map((item) => {
+                        const isOverdue = item.status === "OVERDUE";
+                        const isDelayed = item.isDelayed;
+
+                        return (
+                          <tr
+                            key={item.installmentNumber}
+                            className={`transition-colors ${
+                              isOverdue
+                                ? "bg-rose-50/40 hover:bg-rose-50/70"
+                                : isDelayed
+                                ? "bg-amber-50/30 hover:bg-amber-50/60"
+                                : "hover:bg-slate-50/70"
+                            }`}
+                          >
+                            <td className="py-2.5 px-3 font-semibold text-slate-600">
+                              {item.installmentNumber}
+                            </td>
+                            <td className="py-2.5 px-3 font-medium text-slate-900">
+                              <span className="px-2 py-0.5 rounded bg-slate-100 font-bold mr-1.5 font-mono">
+                                {item.cutoffLabel}
+                              </span>
+                              <span className="text-slate-400">
+                                {new Date(item.cutoffDate).toLocaleDateString()}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
+                              ₱{Number(item.scheduledPrincipal).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-emerald-700 font-semibold font-mono">
+                              ₱{Number(item.principalPaid).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono">
+                              {Number(item.latePenaltyPaid || 0) > 0 ? (
+                                <span className="font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded">
+                                  ₱{Number(item.latePenaltyPaid).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">₱0.00</span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-right text-slate-600 font-medium font-mono">
+                              ₱{Number(item.remainingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              {isOverdue ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                  <AlertCircle className="w-3 h-3 text-rose-600" />
+                                  OVERDUE {item.daysOverdue ? `(${item.daysOverdue}d late)` : ""}
+                                </span>
+                              ) : isDelayed ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                  <Clock className="w-3 h-3 text-amber-600" />
+                                  DELAYED {item.daysOverdue ? `(${item.daysOverdue}d late)` : ""}
+                                </span>
+                              ) : item.status === "PAID" ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  PAID
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                                  PENDING
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                onClick={() => {
+                                  setSelectedCutoffForRepayment(item);
+                                  setIsRepaymentModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer flex items-center gap-1 mx-auto"
+                                title="Log repayment for this cutoff"
+                              >
+                                <CreditCard className="w-3 h-3" />
+                                {item.status === "PAID" ? "Add Fee" : "Pay Cutoff"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
               </div>
             </div>
 
-            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+              <div className="text-xs text-slate-500 flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                <span>Payments automatically reconcile with the cooperative fund audit ledger.</span>
+              </div>
               <button
                 type="button"
                 onClick={() => setSelectedLoanForSchedule(null)}
@@ -388,6 +502,31 @@ export const LoansPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Record Repayment Modal */}
+      <RecordRepaymentModal
+        loan={selectedLoanForSchedule}
+        cutoffItem={selectedCutoffForRepayment}
+        isOpen={isRepaymentModalOpen}
+        onClose={() => {
+          setIsRepaymentModalOpen(false);
+          setSelectedCutoffForRepayment(null);
+        }}
+      />
+
+      {/* Loan Penalties Audit Modal */}
+      <LoanPenaltiesModal
+        loan={selectedLoanForSchedule}
+        isOpen={isPenaltiesModalOpen}
+        onClose={() => setIsPenaltiesModalOpen(false)}
+        onPayCutoff={(cutoffId) => {
+          const target = schedule.find((s) => s.cutoffId === cutoffId);
+          if (target) {
+            setSelectedCutoffForRepayment(target);
+            setIsRepaymentModalOpen(true);
+          }
+        }}
+      />
     </div>
   );
 };

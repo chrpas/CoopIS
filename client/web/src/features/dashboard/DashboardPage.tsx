@@ -9,8 +9,8 @@ export const DashboardPage: React.FC = () => {
   const { data: members = [] } = useQuery<Member[]>({
     queryKey: ["members"],
     queryFn: async () => {
-      const res = await api.get<Member[]>("/members");
-      return res.data;
+      const res = await api.get<any>("/members?pageSize=100");
+      return Array.isArray(res.data) ? res.data : (res.data?.items ?? []);
     },
   });
 

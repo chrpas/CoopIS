@@ -12,3 +12,30 @@ body {
   background-color: #f8fafc;
   color: #0f172a;
 }
+
+@media print {
+  aside,
+  header,
+  nav,
+  button,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  body {
+    background-color: #ffffff !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  #soa-printable-voucher {
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+}

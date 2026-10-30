@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text.Json;
 using System.Threading.Tasks;
 using BCrypt.Net;
 using CoopIS.Domain.Entities;
@@ -23,7 +26,9 @@ public static class DbInitializer
         logger.LogInformation("Ensuring database is created and initialized...");
         await context.Database.EnsureCreatedAsync();
 
-        // 1. Seed Accounts (Admin & User)
+        const int fiscalYear = 2026;
+
+        // 1. Seed Accounts (Admin & User) - Settings & User
         if (!await context.Users.AnyAsync())
         {
             logger.LogInformation("Seeding default authentication accounts...");
@@ -53,7 +58,6 @@ public static class DbInitializer
         }
 
         // 2. Seed 24 Cutoff Periods for 2026
-        const int fiscalYear = 2026;
         if (!await context.CutoffPeriods.AnyAsync(c => c.FiscalYear == fiscalYear))
         {
             logger.LogInformation("Seeding 24 semi-monthly cutoff periods for {FiscalYear}...", fiscalYear);
@@ -92,141 +96,309 @@ public static class DbInitializer
             logger.LogInformation("Seeded 24 cutoff periods (Jan-15 through Dec-31).");
         }
 
-        // 3. Seed Sample Members
-        if (!await context.Members.AnyAsync())
+        // 3. Check if we need to replace data with spreadsheet data
+        var existingMemberCount = await context.Members.CountAsync();
+        var hasSampleMembers = await context.Members.AnyAsync(m => m.MemberCode == "MEM-OFFICER-001" || m.Email.Contains("coop.example.com"));
+
+        if (hasSampleMembers || existingMemberCount < 28)
         {
-            logger.LogInformation("Seeding sample cooperative members...");
-            var member1 = new Member
-            {
-                MemberCode = "MEM-2026-001",
-                FirstName = "Maria",
-                LastName = "Santos",
-                Email = "maria.santos@coop.example.com",
-                Phone = "+639171234567",
-                Status = MemberStatus.ACTIVE,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
+            logger.LogInformation("Clearing old sample transactional & member data while preserving Settings & Users...");
 
-            var member2 = new Member
-            {
-                MemberCode = "MEM-2026-002",
-                FirstName = "Juan",
-                LastName = "Dela Cruz",
-                Email = "juan.delacruz@coop.example.com",
-                Phone = "+639182345678",
-                Status = MemberStatus.ACTIVE,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            var memberApprover = new Member
-            {
-                MemberCode = "MEM-OFFICER-001",
-                FirstName = "Elena",
-                LastName = "Ramos",
-                Email = "elena.ramos@coop.example.com",
-                Phone = "+639193456789",
-                Status = MemberStatus.ACTIVE,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            };
-
-            context.Members.AddRange(member1, member2, memberApprover);
+            context.MemberSurplusLedgers.RemoveRange(context.MemberSurplusLedgers);
+            context.SurplusDistributions.RemoveRange(context.SurplusDistributions);
+            context.BankReconciliations.RemoveRange(context.BankReconciliations);
+            context.LoanRepayments.RemoveRange(context.LoanRepayments);
+            context.Loans.RemoveRange(context.Loans);
+            context.Contributions.RemoveRange(context.Contributions);
+            context.Members.RemoveRange(context.Members);
             await context.SaveChangesAsync();
 
-            // 4. Seed Baseline Transactions
-            var firstCutoff = await context.CutoffPeriods.OrderBy(c => c.CutoffDate).FirstAsync();
+            // Load official spreadsheet data from embedded resource or local json
+            var seedData = LoadSpreadsheetSeedData(logger);
+            if (seedData == null || seedData.Members.Count == 0)
+            {
+                logger.LogWarning("No seed data found in coop_2026_data.json.");
+                return;
+            }
 
-            context.Contributions.AddRange(
-                new Contribution
+            var cutoffPeriods = await context.CutoffPeriods
+                .Where(c => c.FiscalYear == fiscalYear)
+                .OrderBy(c => c.CutoffDate)
+                .ToListAsync();
+
+            // 4. Seed all 28 Members
+            logger.LogInformation("Seeding {Count} cooperative members from COOP-2026-3.xlsx...", seedData.Members.Count);
+            var memberEntities = new Dictionary<string, Member>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var sm in seedData.Members)
+            {
+                var member = new Member
                 {
-                    MemberId = member1.Id,
-                    CutoffId = firstCutoff.Id,
-                    Amount = 2500.00m,
-                    PaymentChannel = PaymentChannel.PAYROLL_DEDUCTION,
-                    CreatedAt = DateTime.UtcNow
-                },
-                new Contribution
+                    Id = Guid.NewGuid(),
+                    MemberCode = sm.MemberCode,
+                    FirstName = sm.FirstName,
+                    LastName = sm.LastName,
+                    Email = sm.Email,
+                    Phone = sm.Phone,
+                    Status = sm.Status == "ACTIVE" ? MemberStatus.ACTIVE : MemberStatus.INACTIVE,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                memberEntities[sm.FullName] = member;
+                context.Members.Add(member);
+            }
+            await context.SaveChangesAsync();
+
+            // 5. Seed Member Contributions across Cutoff Periods
+            logger.LogInformation("Seeding semi-monthly contributions from COOP-2026-3.xlsx...");
+            var contributionEntities = new List<Contribution>();
+
+            foreach (var sm in seedData.Members)
+            {
+                if (!memberEntities.TryGetValue(sm.FullName, out var member)) continue;
+
+                foreach (var sc in sm.Contributions)
                 {
-                    MemberId = member2.Id,
-                    CutoffId = firstCutoff.Id,
-                    Amount = 1500.00m,
-                    PaymentChannel = PaymentChannel.PAYROLL_DEDUCTION,
-                    CreatedAt = DateTime.UtcNow
+                    var cutoffIdx = sc.CutoffNumber - 1;
+                    if (cutoffIdx >= 0 && cutoffIdx < cutoffPeriods.Count)
+                    {
+                        var cutoff = cutoffPeriods[cutoffIdx];
+                        contributionEntities.Add(new Contribution
+                        {
+                            Id = Guid.NewGuid(),
+                            MemberId = member.Id,
+                            CutoffId = cutoff.Id,
+                            Amount = sc.Amount,
+                            PaymentChannel = PaymentChannel.PAYROLL_DEDUCTION,
+                            CreatedAt = cutoff.CutoffDate
+                        });
+                    }
                 }
-            );
+            }
 
-            var sampleLoan = new Loan
+            context.Contributions.AddRange(contributionEntities);
+            await context.SaveChangesAsync();
+            logger.LogInformation("Seeded {Count} contribution records successfully (Total: ₱{Sum:N2}).",
+                contributionEntities.Count, contributionEntities.Sum(c => c.Amount));
+
+            // 6. Seed All 64 Loans and Installment Repayments
+            logger.LogInformation("Seeding {Count} loans and repayment installments from COOP-2026-3.xlsx...", seedData.Loans.Count);
+            var adminUser = await context.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Admin);
+            var approverId = adminUser?.Id ?? memberEntities.Values.First().Id;
+
+            var loanEntities = new List<Loan>();
+            var repaymentEntities = new List<LoanRepayment>();
+
+            foreach (var sl in seedData.Loans)
             {
-                LoanReference = "LN-2026-001",
-                MemberId = member1.Id,
-                OriginationDate = new DateTime(fiscalYear, 1, 15, 0, 0, 0, DateTimeKind.Utc),
-                PrincipalAmount = 50000.00m,
-                InterestRate = 0.0500m,
-                InterestEarned = 2500.00m,
-                ReleasedAmount = 47500.00m,
-                TermMonths = 6,
-                CutoffsCount = 12,
-                CutoffPaymentAmount = 4375.00m,
-                Status = LoanStatus.ACTIVE,
-                ApprovedBy = memberApprover.Id,
-                Notes = "Standard Multi-Purpose Loan approved for educational assistance.",
-                CreatedAt = DateTime.UtcNow
-            };
+                if (!memberEntities.TryGetValue(sl.MemberName, out var member))
+                {
+                    logger.LogWarning("Loan member '{MemberName}' not found in members directory.", sl.MemberName);
+                    continue;
+                }
 
-            context.Loans.Add(sampleLoan);
+                DateTime origDate = DateTime.TryParse(sl.OriginationDate, out var od)
+                    ? DateTime.SpecifyKind(od, DateTimeKind.Utc)
+                    : new DateTime(fiscalYear, 1, 15, 0, 0, 0, DateTimeKind.Utc);
+
+                var loanStatus = sl.Balance == 0 ? LoanStatus.PAID : LoanStatus.ACTIVE;
+                var interestRate = sl.PrincipalAmount > 0
+                    ? Math.Round(sl.InterestEarned / sl.PrincipalAmount, 4)
+                    : 0.0500m;
+                if (interestRate == 0) interestRate = 0.0500m;
+
+                var loan = new Loan
+                {
+                    Id = Guid.NewGuid(),
+                    LoanReference = sl.LoanReference,
+                    MemberId = member.Id,
+                    OriginationDate = origDate,
+                    PrincipalAmount = sl.PrincipalAmount,
+                    InterestRate = interestRate,
+                    InterestEarned = sl.InterestEarned,
+                    ReleasedAmount = sl.ReleasedAmount > 0 ? sl.ReleasedAmount : (sl.PrincipalAmount - sl.InterestEarned),
+                    TermMonths = sl.TermMonths > 0 ? sl.TermMonths : 6,
+                    CutoffsCount = sl.CutoffsCount > 0 ? sl.CutoffsCount : 12,
+                    CutoffPaymentAmount = sl.CutoffPaymentAmount,
+                    Status = loanStatus,
+                    ApprovedBy = approverId,
+                    Notes = !string.IsNullOrWhiteSpace(sl.Notes) ? sl.Notes : "Multi-Purpose Loan",
+                    CreatedAt = origDate
+                };
+
+                loanEntities.Add(loan);
+
+                // Add installment repayments
+                foreach (var sr in sl.Repayments)
+                {
+                    var cutoffIdx = sr.CutoffNumber - 1;
+                    if (cutoffIdx >= 0 && cutoffIdx < cutoffPeriods.Count)
+                    {
+                        var cutoff = cutoffPeriods[cutoffIdx];
+                        repaymentEntities.Add(new LoanRepayment
+                        {
+                            Id = Guid.NewGuid(),
+                            LoanId = loan.Id,
+                            CutoffId = cutoff.Id,
+                            PrincipalPaid = sr.Amount,
+                            LatePenaltyPaid = 0.00m,
+                            PaymentDate = cutoff.CutoffDate,
+                            IsDelayed = false,
+                            RecordedAt = cutoff.CutoffDate
+                        });
+                    }
+                }
+            }
+
+            context.Loans.AddRange(loanEntities);
             await context.SaveChangesAsync();
 
-            context.LoanRepayments.Add(new LoanRepayment
-            {
-                LoanId = sampleLoan.Id,
-                CutoffId = firstCutoff.Id,
-                PrincipalPaid = 4375.00m,
-                LatePenaltyPaid = 0.00m,
-                RecordedAt = DateTime.UtcNow
-            });
+            context.LoanRepayments.AddRange(repaymentEntities);
+            await context.SaveChangesAsync();
 
+            logger.LogInformation("Seeded {LoanCount} loans (Disbursed: ₱{Disbursed:N2}) and {RepayCount} repayments (Collected: ₱{Collected:N2}).",
+                loanEntities.Count, loanEntities.Sum(l => l.PrincipalAmount), repaymentEntities.Count, repaymentEntities.Sum(r => r.PrincipalPaid));
+
+            // 7. Seed Official Bank Reconciliation matching TOTAL FUND
+            var firstCutoff = cutoffPeriods.First();
             context.BankReconciliations.Add(new BankReconciliation
             {
+                Id = Guid.NewGuid(),
                 CutoffId = firstCutoff.Id,
-                StatementDate = new DateTime(fiscalYear, 1, 15, 0, 0, 0, DateTimeKind.Utc),
-                CashInBank = 1250000.00m,
-                BankGrossInterest = 1250.00m,
-                WithholdingTax = 250.00m,
-                NetBankInterest = 1000.00m,
+                StatementDate = new DateTime(fiscalYear, 1, 31, 0, 0, 0, DateTimeKind.Utc),
+                CashInBank = 576096.76m,
+                BankGrossInterest = 14.92m,
+                WithholdingTax = 2.99m,
+                NetBankInterest = 11.93m,
                 ReconciledVariance = 0.00m,
-                Notes = "Opening fiscal cycle reconciliation completed without variance.",
+                Notes = "Official reconciliation baseline matching COOP-2026-3 workbook (Cash: ₱576,096.76).",
                 CreatedAt = DateTime.UtcNow
             });
 
+            // 8. Seed Surplus Distribution & Member Ledgers
             var surplusDist = new SurplusDistribution
             {
+                Id = Guid.NewGuid(),
                 FiscalYear = fiscalYear,
-                TotalInterestIncome = 100000.00m,
-                DividendPool = 65000.00m,
-                PatronagePool = 30000.00m,
-                ManagementPool = 5000.00m,
+                TotalInterestIncome = 163507.75m,
+                DividendPool = 106280.04m, // 65%
+                PatronagePool = 49052.32m, // 30%
+                ManagementPool = 8175.39m,  // 5%
                 IsFinalized = false
             };
             context.SurplusDistributions.Add(surplusDist);
             await context.SaveChangesAsync();
 
-            context.MemberSurplusLedgers.Add(new MemberSurplusLedger
-            {
-                DistributionId = surplusDist.Id,
-                MemberId = member1.Id,
-                TotalContribution = 60000.00m,
-                ContributionRatio = 0.60000000m,
-                DividendEarned = 39000.00m,
-                TotalLoansBorrowed = 50000.00m,
-                LoanRatio = 1.00000000m,
-                PatronageEarned = 30000.00m,
-                NetSavingsCredited = 69000.00m
-            });
-
-            await context.SaveChangesAsync();
-            logger.LogInformation("Sample transactions and surplus ledgers initialized successfully.");
+            logger.LogInformation("Cooperative spreadsheet data seeded successfully! All 28 members, contributions, and 64 loans loaded.");
         }
+    }
+
+    private static SeedDataRoot? LoadSpreadsheetSeedData(ILogger logger)
+    {
+        string? jsonContent = null;
+
+        // Try embedded resource first
+        try
+        {
+            var assembly = typeof(DbInitializer).Assembly;
+            var resourceName = "CoopIS.Infrastructure.Data.coop_2026_data.json";
+
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream != null)
+            {
+                using var reader = new StreamReader(stream);
+                jsonContent = reader.ReadToEnd();
+                logger.LogInformation("Loaded seed data from embedded resource '{ResourceName}'.", resourceName);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed loading seed data from embedded resource.");
+        }
+
+        // Fallback to file search
+        if (string.IsNullOrWhiteSpace(jsonContent))
+        {
+            var candidates = new[]
+            {
+                Path.Combine(AppContext.BaseDirectory, "Data", "coop_2026_data.json"),
+                Path.Combine(AppContext.BaseDirectory, "coop_2026_data.json"),
+                Path.Combine(Directory.GetCurrentDirectory(), "src", "Infrastructure", "Data", "coop_2026_data.json"),
+                @"C:\Projects\coopis\src\Infrastructure\Data\coop_2026_data.json"
+            };
+
+            foreach (var path in candidates)
+            {
+                if (File.Exists(path))
+                {
+                    jsonContent = File.ReadAllText(path);
+                    logger.LogInformation("Loaded seed data from file '{Path}'.", path);
+                    break;
+                }
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(jsonContent))
+        {
+            return null;
+        }
+
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        return JsonSerializer.Deserialize<SeedDataRoot>(jsonContent, options);
+    }
+
+    private class SeedDataRoot
+    {
+        public List<SeedMember> Members { get; set; } = new();
+        public List<SeedLoan> Loans { get; set; } = new();
+    }
+
+    private class SeedMember
+    {
+        public string MemberCode { get; set; } = "";
+        public string FullName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string FirstName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Status { get; set; } = "ACTIVE";
+        public decimal TotalContribution { get; set; }
+        public List<SeedContribution> Contributions { get; set; } = new();
+    }
+
+    private class SeedContribution
+    {
+        public int CutoffNumber { get; set; }
+        public decimal Amount { get; set; }
+    }
+
+    private class SeedLoan
+    {
+        public string LoanReference { get; set; } = "";
+        public string MemberName { get; set; } = "";
+        public string OriginationDate { get; set; } = "";
+        public decimal PrincipalAmount { get; set; }
+        public decimal InterestEarned { get; set; }
+        public decimal ReleasedAmount { get; set; }
+        public int TermMonths { get; set; }
+        public int CutoffsCount { get; set; }
+        public decimal CutoffPaymentAmount { get; set; }
+        public decimal Balance { get; set; }
+        public decimal TotalPaid { get; set; }
+        public decimal OtherInterest { get; set; }
+        public string Status { get; set; } = "ACTIVE";
+        public string Notes { get; set; } = "";
+        public List<SeedRepayment> Repayments { get; set; } = new();
+    }
+
+    private class SeedRepayment
+    {
+        public int CutoffNumber { get; set; }
+        public decimal Amount { get; set; }
     }
 }

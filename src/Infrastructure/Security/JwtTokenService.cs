@@ -20,7 +20,10 @@ public class JwtTokenService : ITokenService
 
     public string GenerateJwtToken(UserAccount user)
     {
-        var secret = _config["Jwt:Key"] ?? "CoopIS_Super_Secure_Secret_Key_For_Jwt_Token_Generation_2026_Enterprise!";
+        var secret = Environment.GetEnvironmentVariable("JWT_SECRET")
+            ?? Environment.GetEnvironmentVariable("Jwt__Key")
+            ?? _config["Jwt:Key"]
+            ?? "CoopIS_Super_Secure_Secret_Key_For_Jwt_Token_Generation_2026_Enterprise!";
         var issuer = _config["Jwt:Issuer"] ?? "CoopIS.Api";
         var audience = _config["Jwt:Audience"] ?? "CoopIS.Client";
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));

@@ -8,6 +8,7 @@ using CoopIS.Application.Services;
 using CoopIS.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace CoopIS.Api.Controllers;
@@ -27,6 +28,8 @@ public class AuthController : ControllerBase
         _passwordHasher = passwordHasher;
     }
 
+    [AllowAnonymous]
+    [EnableRateLimiting("LoginRateLimiter")]
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponse>> Login([FromBody] LoginRequest request)
     {
@@ -55,7 +58,7 @@ public class AuthController : ControllerBase
         return Ok(new LoginResponse(token, userDto));
     }
 
-    [Authorize]
+    [Authorize(Roles = "Admin,User")]
     [HttpGet("me")]
     public async Task<ActionResult<UserDto>> GetCurrentUser()
     {

@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: coopis_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-coopis_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-coopis_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - coopis_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: coopis_api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      DATABASE_URL: "Host=db;Port=5432;Database=${POSTGRES_DB:-coopis_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgrespassword}"
+      ConnectionStrings__CoopDbConnection: "Host=db;Port=5432;Database=${POSTGRES_DB:-coopis_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgrespassword}"
+      JWT_SECRET: ${JWT_SECRET:-CoopIS_Super_Secure_Secret_Key_For_Jwt_Token_Generation_2026_Enterprise!}
+      Jwt__Key: ${JWT_SECRET:-CoopIS_Super_Secure_Secret_Key_For_Jwt_Token_Generation_2026_Enterprise!}
+      Jwt__Issuer: ${JWT_ISSUER:-CoopIS.Api}
+      Jwt__Audience: ${JWT_AUDIENCE:-CoopIS.Client}
+      EnableSwaggerInProd: ${ENABLE_SWAGGER:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-5208}:8080"
+    networks:
+      - coopis_network
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: coopis_web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - api
+    networks:
+      - coopis_network
+
+networks:
+  coopis_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

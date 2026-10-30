@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoopIS.Api.Controllers;
 
-[Authorize]
+[Authorize(Roles = "Admin,User")]
 [ApiController]
 [Route("api/cutoff-periods")]
 public class CutoffPeriodsController : ControllerBase

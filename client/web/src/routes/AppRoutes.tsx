@@ -10,6 +10,7 @@ import { MembersPage } from "../features/members/MembersPage";
 import { ContributionsPage } from "../features/contributions/ContributionsPage";
 import { AccountingPage } from "../features/accounting/AccountingPage";
 import { DistributionPage } from "../features/distribution/DistributionPage";
+import { SettingsPage } from "../features/settings/SettingsPage";
 
 const RootRedirect: React.FC = () => {
   const { user, isLoading } = useAuth();
@@ -57,7 +58,7 @@ export const AppRoutes: React.FC = () => {
         <Route
           path="/members"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["Admin", "User"]}>
               <MembersPage />
             </ProtectedRoute>
           }
@@ -93,6 +94,18 @@ export const AppRoutes: React.FC = () => {
               <LoansPage />
             </ProtectedRoute>
           }
+        />
+        <Route
+          path="/settings/users"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <SettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={<Navigate to="/settings/users" replace />}
         />
       </Route>
 

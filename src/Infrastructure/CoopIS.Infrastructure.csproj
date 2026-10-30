@@ -24,4 +24,8 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Data\coop_2026_data.json" />
+  </ItemGroup>
+
 </Project>

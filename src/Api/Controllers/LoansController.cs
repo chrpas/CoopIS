@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoopIS.Api.Controllers;
 
-[Authorize]
+[Authorize(Roles = "Admin,User")]
 [ApiController]
 [Route("api/loans")]
 public class LoansController : ControllerBase
@@ -50,7 +50,8 @@ public class LoansController : ControllerBase
                 l.Approver != null ? $"{l.Approver.FirstName} {l.Approver.LastName}" : null,
                 l.Notes,
                 l.CreatedAt,
-                l.Repayments.Sum(r => r.PrincipalPaid)
+                l.Repayments.Sum(r => r.PrincipalPaid),
+                l.Repayments.Sum(r => r.LatePenaltyPaid)
             ))
             .ToListAsync();
 
@@ -89,7 +90,8 @@ public class LoansController : ControllerBase
             loan.Approver != null ? $"{loan.Approver.FirstName} {loan.Approver.LastName}" : null,
             loan.Notes,
             loan.CreatedAt,
-            loan.Repayments.Sum(r => r.PrincipalPaid)
+            loan.Repayments.Sum(r => r.PrincipalPaid),
+            loan.Repayments.Sum(r => r.LatePenaltyPaid)
         );
 
         return Ok(dto);
@@ -238,6 +240,7 @@ public class LoansController : ControllerBase
             null,
             loan.Notes,
             loan.CreatedAt,
+            0.00m,
             0.00m
         );
 
@@ -257,6 +260,33 @@ public class LoansController : ControllerBase
             return NotFound(new { message = "Loan record not found." });
         }
 
+        // Ensure missing scheduled cutoffs are populated if needed
+        if (loan.Repayments.Count < loan.CutoffsCount && (loan.Status == LoanStatus.APPROVED || loan.Status == LoanStatus.ACTIVE))
+        {
+            var existingCutoffIds = loan.Repayments.Select(r => r.CutoffId).ToHashSet();
+            var neededCount = loan.CutoffsCount - loan.Repayments.Count;
+            var additionalCutoffs = await _context.CutoffPeriods
+                .Where(c => c.CutoffDate >= loan.OriginationDate && !existingCutoffIds.Contains(c.Id))
+                .OrderBy(c => c.CutoffDate)
+                .Take(neededCount)
+                .ToListAsync();
+
+            foreach (var cutoff in additionalCutoffs)
+            {
+                loan.Repayments.Add(new LoanRepayment
+                {
+                    LoanId = loan.Id,
+                    CutoffId = cutoff.Id,
+                    CutoffPeriod = cutoff,
+                    PrincipalPaid = 0.00m,
+                    LatePenaltyPaid = 0.00m,
+                    RecordedAt = DateTime.UtcNow
+                });
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        const int gracePeriodDays = 3;
         var repayments = loan.Repayments
             .OrderBy(r => r.CutoffPeriod.CutoffDate)
             .ToList();
@@ -276,11 +306,37 @@ public class LoansController : ControllerBase
             }
 
             remaining = Math.Max(0m, Math.Round(remaining - (r.PrincipalPaid > 0 ? r.PrincipalPaid : scheduledAmount), 2));
-            string status = r.PrincipalPaid >= scheduledAmount
+
+            var cutoffDate = r.CutoffPeriod.CutoffDate;
+            var dueDateWithGrace = cutoffDate.Date.AddDays(gracePeriodDays).AddHours(23).AddMinutes(59).AddSeconds(59);
+
+            bool isPaid = r.PrincipalPaid >= scheduledAmount;
+            bool isPastGrace = DateTime.UtcNow > dueDateWithGrace;
+            bool isOverdue = !isPaid && isPastGrace;
+
+            bool isDelayed = r.IsDelayed || (isPaid && r.PaymentDate.HasValue && r.PaymentDate.Value > dueDateWithGrace) || r.LatePenaltyPaid > 0 || isOverdue;
+
+            int daysOverdue = 0;
+            if (isOverdue)
+            {
+                daysOverdue = Math.Max(0, (int)(DateTime.UtcNow.Date - cutoffDate.Date).TotalDays);
+            }
+            else if (isDelayed && r.PaymentDate.HasValue)
+            {
+                daysOverdue = Math.Max(0, (int)(r.PaymentDate.Value.Date - cutoffDate.Date).TotalDays);
+            }
+
+            decimal unpaidBalance = Math.Max(0m, scheduledAmount - r.PrincipalPaid);
+            decimal accruedPenalty = 0.00m;
+            if (isOverdue)
+            {
+                // Standard 2% late charge on unpaid installment
+                accruedPenalty = Math.Round(unpaidBalance * 0.02m, 2);
+            }
+
+            string status = isPaid
                 ? "PAID"
-                : r.CutoffPeriod.CutoffDate < DateTime.UtcNow
-                    ? "OVERDUE"
-                    : "PENDING";
+                : (isOverdue ? "OVERDUE" : "PENDING");
 
             schedule.Add(new AmortizationScheduleItemDto(
                 installment,
@@ -290,7 +346,13 @@ public class LoansController : ControllerBase
                 scheduledAmount,
                 r.PrincipalPaid,
                 remaining,
-                status
+                status,
+                r.LatePenaltyPaid,
+                accruedPenalty,
+                isDelayed,
+                daysOverdue,
+                r.PaymentDate,
+                r.Notes
             ));
 
             installment++;
@@ -299,6 +361,245 @@ public class LoansController : ControllerBase
         return Ok(schedule);
     }
 
+    [HttpPost("{id:guid}/repayments")]
+    public async Task<ActionResult<LoanRepaymentResponseDto>> RecordLoanRepayment(
+        Guid id,
+        [FromBody] RecordLoanRepaymentRequest request)
+    {
+        if (request.PrincipalPaid < 0 || request.LatePenaltyPaid < 0)
+        {
+            return BadRequest(new { message = "Amounts cannot be negative." });
+        }
+
+        if (request.PrincipalPaid == 0 && request.LatePenaltyPaid == 0)
+        {
+            return BadRequest(new { message = "At least one of Principal Paid or Late Penalty Paid must be greater than zero." });
+        }
+
+        var loan = await _context.Loans
+            .Include(l => l.Repayments)
+                .ThenInclude(r => r.CutoffPeriod)
+            .FirstOrDefaultAsync(l => l.Id == id);
+
+        if (loan == null)
+        {
+            return NotFound(new { message = "Loan record not found." });
+        }
+
+        var cutoff = await _context.CutoffPeriods.FirstOrDefaultAsync(c => c.Id == request.CutoffId);
+        if (cutoff == null)
+        {
+            return NotFound(new { message = "Cutoff period not found." });
+        }
+
+        const int gracePeriodDays = 3;
+        var paymentDate = request.PaymentDate ?? DateTime.UtcNow;
+        var dueDateWithGrace = cutoff.CutoffDate.Date.AddDays(gracePeriodDays).AddHours(23).AddMinutes(59).AddSeconds(59);
+        bool isDelayed = (paymentDate > dueDateWithGrace) || request.LatePenaltyPaid > 0;
+        int daysOverdue = isDelayed ? Math.Max(0, (int)(paymentDate.Date - cutoff.CutoffDate.Date).TotalDays) : 0;
+
+        var repayment = loan.Repayments.FirstOrDefault(r => r.CutoffId == request.CutoffId);
+        if (repayment == null)
+        {
+            repayment = new LoanRepayment
+            {
+                LoanId = loan.Id,
+                CutoffId = request.CutoffId,
+                CutoffPeriod = cutoff,
+                PrincipalPaid = 0.00m,
+                LatePenaltyPaid = 0.00m
+            };
+            loan.Repayments.Add(repayment);
+        }
+
+        repayment.PrincipalPaid += request.PrincipalPaid;
+        repayment.LatePenaltyPaid += request.LatePenaltyPaid;
+        repayment.PaymentDate = paymentDate;
+        repayment.RecordedAt = DateTime.UtcNow;
+        repayment.IsDelayed = isDelayed;
+        if (!string.IsNullOrWhiteSpace(request.Notes))
+        {
+            repayment.Notes = string.IsNullOrWhiteSpace(repayment.Notes)
+                ? request.Notes
+                : $"{repayment.Notes} | {request.Notes}";
+        }
+
+        // Check remaining balance on loan
+        decimal totalPrincipalPaid = loan.Repayments.Sum(r => r.PrincipalPaid);
+        decimal remainingBalance = Math.Max(0m, loan.PrincipalAmount - totalPrincipalPaid);
+
+        if (remainingBalance == 0m)
+        {
+            loan.Status = LoanStatus.PAID;
+        }
+        else if (loan.Status == LoanStatus.PENDING_APPROVAL || loan.Status == LoanStatus.APPROVED)
+        {
+            loan.Status = LoanStatus.ACTIVE;
+        }
+
+        await _context.SaveChangesAsync();
+
+        var responseDto = new LoanRepaymentResponseDto(
+            repayment.Id,
+            loan.Id,
+            cutoff.Id,
+            cutoff.Label,
+            cutoff.CutoffDate,
+            repayment.PrincipalPaid,
+            repayment.LatePenaltyPaid,
+            request.PrincipalPaid + request.LatePenaltyPaid,
+            remainingBalance,
+            repayment.IsDelayed,
+            daysOverdue,
+            repayment.PaymentDate,
+            repayment.RecordedAt,
+            loan.Status.ToString(),
+            repayment.Notes
+        );
+
+        return Ok(responseDto);
+    }
+
+    [HttpGet("{id:guid}/penalties")]
+    public async Task<ActionResult<LoanPenaltySummaryDto>> GetLoanPenalties(Guid id)
+    {
+        var loan = await _context.Loans
+            .Include(l => l.Member)
+            .Include(l => l.Repayments)
+                .ThenInclude(r => r.CutoffPeriod)
+            .FirstOrDefaultAsync(l => l.Id == id);
+
+        if (loan == null)
+        {
+            return NotFound(new { message = "Loan record not found." });
+        }
+
+        // Ensure schedule is populated if needed
+        if (loan.Repayments.Count < loan.CutoffsCount && (loan.Status == LoanStatus.APPROVED || loan.Status == LoanStatus.ACTIVE))
+        {
+            var existingCutoffIds = loan.Repayments.Select(r => r.CutoffId).ToHashSet();
+            var neededCount = loan.CutoffsCount - loan.Repayments.Count;
+            var additionalCutoffs = await _context.CutoffPeriods
+                .Where(c => c.CutoffDate >= loan.OriginationDate && !existingCutoffIds.Contains(c.Id))
+                .OrderBy(c => c.CutoffDate)
+                .Take(neededCount)
+                .ToListAsync();
+
+            foreach (var cutoff in additionalCutoffs)
+            {
+                loan.Repayments.Add(new LoanRepayment
+                {
+                    LoanId = loan.Id,
+                    CutoffId = cutoff.Id,
+                    CutoffPeriod = cutoff,
+                    PrincipalPaid = 0.00m,
+                    LatePenaltyPaid = 0.00m,
+                    RecordedAt = DateTime.UtcNow
+                });
+            }
+            await _context.SaveChangesAsync();
+        }
+
+        const int gracePeriodDays = 3;
+        var repayments = loan.Repayments.OrderBy(r => r.CutoffPeriod.CutoffDate).ToList();
+        var breakdown = new List<CutoffPenaltyDetailDto>();
+
+        decimal totalAccruedPenalties = 0.00m;
+        decimal totalLatePenaltiesPaid = 0.00m;
+        int overdueCount = 0;
+        int paidCount = 0;
+        int installment = 1;
+
+        foreach (var r in repayments)
+        {
+            decimal scheduledAmount = loan.CutoffPaymentAmount;
+            if (installment == loan.CutoffsCount)
+            {
+                decimal sumPrevious = loan.CutoffPaymentAmount * (loan.CutoffsCount - 1);
+                scheduledAmount = Math.Round(loan.PrincipalAmount - sumPrevious, 2);
+            }
+
+            var cutoffDate = r.CutoffPeriod.CutoffDate;
+            var dueDateWithGrace = cutoffDate.Date.AddDays(gracePeriodDays).AddHours(23).AddMinutes(59).AddSeconds(59);
+
+            bool isPaid = r.PrincipalPaid >= scheduledAmount;
+            bool isPastGrace = DateTime.UtcNow > dueDateWithGrace;
+            bool isOverdue = !isPaid && isPastGrace;
+
+            bool isDelayed = r.IsDelayed || (isPaid && r.PaymentDate.HasValue && r.PaymentDate.Value > dueDateWithGrace) || r.LatePenaltyPaid > 0 || isOverdue;
+
+            int daysLate = 0;
+            if (isOverdue)
+            {
+                daysLate = Math.Max(0, (int)(DateTime.UtcNow.Date - cutoffDate.Date).TotalDays);
+                overdueCount++;
+            }
+            else if (isDelayed && r.PaymentDate.HasValue)
+            {
+                daysLate = Math.Max(0, (int)(r.PaymentDate.Value.Date - cutoffDate.Date).TotalDays);
+            }
+
+            if (isPaid) paidCount++;
+
+            decimal remainingCutoffBalance = Math.Max(0m, scheduledAmount - r.PrincipalPaid);
+            decimal accruedPenalty = 0.00m;
+            if (isOverdue)
+            {
+                accruedPenalty = Math.Round(remainingCutoffBalance * 0.02m, 2);
+            }
+
+            totalAccruedPenalties += accruedPenalty;
+            totalLatePenaltiesPaid += r.LatePenaltyPaid;
+
+            string status = isPaid ? "PAID" : (isOverdue ? "OVERDUE" : "PENDING");
+
+            breakdown.Add(new CutoffPenaltyDetailDto(
+                r.Id,
+                r.CutoffId,
+                r.CutoffPeriod.Label,
+                cutoffDate,
+                dueDateWithGrace,
+                scheduledAmount,
+                r.PrincipalPaid,
+                remainingCutoffBalance,
+                r.LatePenaltyPaid,
+                accruedPenalty,
+                isDelayed,
+                isOverdue,
+                daysLate,
+                r.PaymentDate,
+                status
+            ));
+
+            installment++;
+        }
+
+        decimal totalPrincipalPaid = loan.Repayments.Sum(r => r.PrincipalPaid);
+        decimal remainingPrincipal = Math.Max(0m, loan.PrincipalAmount - totalPrincipalPaid);
+        decimal outstandingPenalties = Math.Max(0m, totalAccruedPenalties - totalLatePenaltiesPaid);
+
+        var summary = new LoanPenaltySummaryDto(
+            loan.Id,
+            loan.LoanReference,
+            loan.MemberId,
+            $"{loan.Member.FirstName} {loan.Member.LastName}",
+            loan.PrincipalAmount,
+            totalPrincipalPaid,
+            remainingPrincipal,
+            totalLatePenaltiesPaid,
+            totalAccruedPenalties,
+            outstandingPenalties,
+            loan.CutoffsCount,
+            paidCount,
+            overdueCount,
+            gracePeriodDays,
+            breakdown
+        );
+
+        return Ok(summary);
+    }
+
+    [Authorize(Roles = "Admin")]
     [HttpPut("{id:guid}/status")]
     public async Task<IActionResult> UpdateLoanStatus(Guid id, [FromBody] UpdateLoanStatusRequest request)
     {
@@ -350,4 +651,3 @@ public class LoansController : ControllerBase
         return Ok(new { message = $"Loan {loan.LoanReference} status updated to {loan.Status}." });
     }
 }
-
