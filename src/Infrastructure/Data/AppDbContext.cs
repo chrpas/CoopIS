@@ -98,6 +98,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.LoanId, e.CutoffId }).IsUnique();
             entity.Property(e => e.PrincipalPaid).HasPrecision(14, 2);
             entity.Property(e => e.LatePenaltyPaid).HasPrecision(14, 2);
+            entity.Property(e => e.PaymentChannel).HasConversion<string>();
 
             entity.HasOne(e => e.Loan)
                 .WithMany(l => l.Repayments)

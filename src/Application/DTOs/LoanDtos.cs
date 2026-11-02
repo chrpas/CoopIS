@@ -57,6 +57,7 @@ public record AmortizationScheduleItemDto(
     bool IsDelayed = false,
     int DaysOverdue = 0,
     DateTime? PaymentDate = null,
+    PaymentChannel? PaymentChannel = null,
     string? Notes = null
 );
 
@@ -65,6 +66,7 @@ public record RecordLoanRepaymentRequest(
     decimal PrincipalPaid,
     decimal LatePenaltyPaid = 0.00m,
     DateTime? PaymentDate = null,
+    PaymentChannel? PaymentChannel = PaymentChannel.CASH,
     string? Notes = null
 );
 
@@ -83,6 +85,7 @@ public record LoanRepaymentResponseDto(
     DateTime? PaymentDate,
     DateTime RecordedAt,
     string LoanStatus,
+    PaymentChannel? PaymentChannel,
     string? Notes
 );
 

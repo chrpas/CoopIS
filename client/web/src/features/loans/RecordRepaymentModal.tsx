@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
-import { Loan, AmortizationScheduleItem, LoanRepaymentResponse } from "../../types";
+import { Loan, AmortizationScheduleItem, LoanRepaymentResponse, PaymentChannel } from "../../types";
 import { useToast } from "../../components/ui/Toast";
 import {
   X,
@@ -12,6 +12,8 @@ import {
   Loader2,
   CheckCircle2,
   ShieldAlert,
+  Banknote,
+  Building2,
 } from "lucide-react";
 
 interface RecordRepaymentModalProps {
@@ -34,6 +36,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
 
   const [principalInput, setPrincipalInput] = useState<string>("");
   const [latePenaltyInput, setLatePenaltyInput] = useState<string>("");
+  const [paymentChannel, setPaymentChannel] = useState<PaymentChannel>("CASH");
   const [paymentDate, setPaymentDate] = useState<string>(() => {
     return new Date().toISOString().split("T")[0];
   });
@@ -46,28 +49,29 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
       const remainingInstallment = Math.max(0, cutoffItem.scheduledPrincipal - cutoffItem.principalPaid);
       setPrincipalInput(remainingInstallment.toFixed(2));
 
-      // If overdue or delayed, prefill accrued penalty (2% of unpaid cutoff amount)
+      // If overdue or delayed, prefill accrued penalty (5% of unpaid cutoff amount)
       if (cutoffItem.accruedPenalty && cutoffItem.accruedPenalty > 0) {
         setLatePenaltyInput(cutoffItem.accruedPenalty.toFixed(2));
       } else if (cutoffItem.isDelayed || cutoffItem.status === "OVERDUE") {
-        const calculatedPenalty = Math.round(remainingInstallment * 0.02 * 100) / 100;
+        const calculatedPenalty = Math.round(remainingInstallment * 0.05 * 100) / 100;
         setLatePenaltyInput(calculatedPenalty.toFixed(2));
       } else {
         setLatePenaltyInput("0.00");
       }
 
+      setPaymentChannel(cutoffItem.paymentChannel || "CASH");
       setPaymentDate(new Date().toISOString().split("T")[0]);
       setNotes("");
       setErrorMessage(null);
     }
   }, [cutoffItem, isOpen]);
 
-  // Due date and grace period inspection (3 days grace period)
+  // Due date and grace period inspection (14 days grace period policy)
   const isPastDue = React.useMemo(() => {
     if (!cutoffItem) return false;
     const cutoffDate = new Date(cutoffItem.cutoffDate);
     const graceDate = new Date(cutoffDate);
-    graceDate.setDate(graceDate.getDate() + 3);
+    graceDate.setDate(graceDate.getDate() + 14);
     const selectedPayDate = new Date(paymentDate);
     return selectedPayDate > graceDate || cutoffItem.status === "OVERDUE" || cutoffItem.isDelayed;
   }, [cutoffItem, paymentDate]);
@@ -93,6 +97,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
         principalPaid: numericPrincipal,
         latePenaltyPaid: numericPenalty,
         paymentDate: new Date(paymentDate).toISOString(),
+        paymentChannel,
         notes: notes.trim() || undefined,
       };
 
@@ -219,7 +224,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
                   )}
                 </div>
                 <p className="text-[11px] text-amber-800 leading-relaxed">
-                  The cutoff has passed the scheduled date (+ 3-day grace period). A standard 2% cooperative late penalty charge has been suggested below.
+                  The cutoff has passed the scheduled date (+ 14-day grace policy). A standard 5% cooperative late penalty charge has been suggested below.
                 </p>
               </div>
             </div>
@@ -259,7 +264,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
               </label>
               {isPastDue && (
                 <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
-                  2% Standard Rate
+                  5% Standard Rate
                 </span>
               )}
             </div>
@@ -284,6 +289,38 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
             <p className="text-[10px] text-slate-400 mt-1">
               Collected late penalties are recorded into the cooperative revenue account and distributed in the surplus pool.
             </p>
+          </div>
+
+          {/* Payment Channel */}
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px] mb-1.5">
+              Payment Channel
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: "CASH" as PaymentChannel, label: "Cash Deposit", icon: Banknote },
+                { id: "PAYROLL_DEDUCTION" as PaymentChannel, label: "Payroll Deduction", icon: Building2 },
+                { id: "BANK_TRANSFER" as PaymentChannel, label: "Bank Transfer", icon: CreditCard },
+              ].map((channel) => {
+                const Icon = channel.icon;
+                const isSelected = paymentChannel === channel.id;
+                return (
+                  <button
+                    key={channel.id}
+                    type="button"
+                    onClick={() => setPaymentChannel(channel.id)}
+                    className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center gap-1 transition-all ${
+                      isSelected
+                        ? "bg-emerald-50 border-emerald-600 text-emerald-800 ring-1 ring-emerald-600"
+                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Icon className={`w-3.5 h-3.5 ${isSelected ? "text-emerald-600" : "text-slate-400"}`} />
+                    <span className="text-[10px] font-bold leading-tight">{channel.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Payment Date Input */}

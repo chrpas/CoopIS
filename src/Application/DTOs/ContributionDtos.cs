@@ -8,7 +8,7 @@ public record ContributionItemDto(
     Guid MemberId,
     Guid CutoffId,
     decimal Amount,
-    PaymentChannel PaymentChannel = PaymentChannel.PAYROLL_DEDUCTION
+    PaymentChannel PaymentChannel = PaymentChannel.CASH
 );
 
 public record CutoffMemberContributionDto(

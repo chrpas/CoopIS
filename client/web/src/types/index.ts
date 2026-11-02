@@ -191,12 +191,13 @@ export interface AmortizationScheduleItem {
   scheduledPrincipal: number;
   principalPaid: number;
   remainingBalance: number;
-  status: "PENDING" | "PAID" | "OVERDUE";
+  status: "PENDING" | "PAID" | "OVERDUE" | "UPCOMING";
   latePenaltyPaid?: number;
   accruedPenalty?: number;
   isDelayed?: boolean;
   daysOverdue?: number;
   paymentDate?: string | null;
+  paymentChannel?: PaymentChannel | null;
   notes?: string | null;
 }
 
@@ -205,6 +206,7 @@ export interface RecordRepaymentPayload {
   principalPaid: number;
   latePenaltyPaid?: number;
   paymentDate?: string;
+  paymentChannel?: PaymentChannel;
   notes?: string;
 }
 
@@ -223,6 +225,7 @@ export interface LoanRepaymentResponse {
   paymentDate?: string | null;
   recordedAt: string;
   loanStatus: string;
+  paymentChannel?: PaymentChannel | null;
   notes?: string | null;
 }
 

@@ -48,7 +48,7 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
             <div>
               <h3 className="font-bold text-sm">Overdue Balances & Late Penalty Audit</h3>
               <p className="text-xs text-slate-300">
-                Loan {loan.loanReference} • {loan.memberName} • 3-Day Grace Policy
+                Loan {loan.loanReference} • {loan.memberName} • 14-Day Grace Policy (5% Penalty)
               </p>
             </div>
           </div>

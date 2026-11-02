@@ -10,7 +10,6 @@ import { memberService } from "../../services/memberService";
 import { Member, MemberStatus } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { MemberModalForm } from "./MemberModalForm";
-import { MemberDetailsDrawer } from "./MemberDetailsDrawer";
 import { MemberDeleteDialog } from "./MemberDeleteDialog";
 import {
   Users,
@@ -21,7 +20,6 @@ import {
   Clock,
   Ban,
   Shield,
-  Eye,
   Pencil,
   ChevronLeft,
   ChevronRight,
@@ -49,10 +47,9 @@ export const MembersPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<string>("lastName");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
-  // Modal / Drawer States
+  // Modal States
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
-  const [selectedMemberIdForDrawer, setSelectedMemberIdForDrawer] = useState<string | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
 
   // Fetch paginated member directory
@@ -126,12 +123,9 @@ export const MembersPage: React.FC = () => {
             <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center flex-shrink-0">
               <Shield className="w-3.5 h-3.5" />
             </div>
-            <button
-              onClick={() => setSelectedMemberIdForDrawer(row.original.id)}
-              className="font-mono font-bold text-slate-900 hover:text-emerald-700 hover:underline transition-colors text-xs"
-            >
+            <span className="font-mono font-bold text-slate-900 text-xs">
               {row.original.memberCode}
-            </button>
+            </span>
           </div>
         ),
       },
@@ -161,12 +155,9 @@ export const MembersPage: React.FC = () => {
               {row.original.lastName[0]}
             </div>
             <div>
-              <button
-                onClick={() => setSelectedMemberIdForDrawer(row.original.id)}
-                className="font-semibold text-slate-900 hover:text-emerald-700 text-left transition-colors"
-              >
+              <span className="font-semibold text-slate-900 text-left block">
                 {row.original.lastName}, {row.original.firstName}
-              </button>
+              </span>
               <div className="text-[11px] text-slate-400 sm:hidden">{row.original.email}</div>
             </div>
           </div>
@@ -313,15 +304,7 @@ export const MembersPage: React.FC = () => {
         header: () => <span className="text-right block">Actions</span>,
         cell: ({ row }) => (
           <div className="flex items-center justify-end gap-1.5">
-            <button
-              onClick={() => setSelectedMemberIdForDrawer(row.original.id)}
-              className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
-              title="View member statement and history"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-
-            {isAdmin && (
+            {isAdmin ? (
               <>
                 <button
                   onClick={() => setMemberToEdit(row.original)}
@@ -338,6 +321,8 @@ export const MembersPage: React.FC = () => {
                   <Ban className="w-4 h-4" />
                 </button>
               </>
+            ) : (
+              <span className="text-xs text-slate-400 italic">View only</span>
             )}
           </div>
         ),
@@ -513,12 +498,7 @@ export const MembersPage: React.FC = () => {
                 {table.getRowModel().rows.map((row) => (
                   <tr
                     key={row.id}
-                    className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                    onClick={(e) => {
-                      // Prevent opening drawer if user clicked action buttons
-                      if ((e.target as HTMLElement).closest("button")) return;
-                      setSelectedMemberIdForDrawer(row.original.id);
-                    }}
+                    className="hover:bg-slate-50/80 transition-colors"
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td key={cell.id} className="py-3.5 px-4">
@@ -613,9 +593,6 @@ export const MembersPage: React.FC = () => {
       <MemberModalForm
         isOpen={isEnrollModalOpen}
         onClose={() => setIsEnrollModalOpen(false)}
-        onSuccess={(newMember) => {
-          setSelectedMemberIdForDrawer(newMember.id);
-        }}
       />
 
       {/* Modal 2: Edit Member Form */}
@@ -623,19 +600,6 @@ export const MembersPage: React.FC = () => {
         isOpen={Boolean(memberToEdit)}
         memberToEdit={memberToEdit}
         onClose={() => setMemberToEdit(null)}
-      />
-
-      {/* Drawer: Member Details & Ledger */}
-      <MemberDetailsDrawer
-        memberId={selectedMemberIdForDrawer}
-        isOpen={Boolean(selectedMemberIdForDrawer)}
-        onClose={() => setSelectedMemberIdForDrawer(null)}
-        onEdit={(member) => {
-          setMemberToEdit(member as Member);
-        }}
-        onRequestDelete={(member) => {
-          setMemberToDelete(member as Member);
-        }}
       />
 
       {/* Dialog: Delete / Suspend confirmation */}

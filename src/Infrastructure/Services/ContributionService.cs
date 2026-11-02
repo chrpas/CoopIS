@@ -77,7 +77,7 @@ public class ContributionService : IContributionService
                     cutoff.Label,
                     null,
                     0.00m,
-                    PaymentChannel.PAYROLL_DEDUCTION,
+                    PaymentChannel.CASH,
                     null
                 ));
             }

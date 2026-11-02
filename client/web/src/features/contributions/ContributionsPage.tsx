@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useReactTable,
@@ -14,32 +14,28 @@ import {
   CutoffPeriod,
   CutoffMemberContribution,
   ContributionSummary,
-  BatchContributionItem,
-  BatchContributionResult,
-  PaymentChannel,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
+import { MemberDetailsDrawer } from "../members/MemberDetailsDrawer";
+import { ContributionModal } from "./ContributionModal";
 import {
   Calendar,
-  Save,
-  RotateCcw,
   Search,
   ArrowUpDown,
   TrendingUp,
   Users,
   CheckCircle2,
   AlertCircle,
-  FileSpreadsheet,
   Building2,
   Lock,
   Unlock,
   Coins,
   History,
+  Eye,
+  Plus,
 } from "lucide-react";
 
-interface EditableRowData extends CutoffMemberContribution {
-  isModified?: boolean;
-}
+interface EditableRowData extends CutoffMemberContribution {}
 
 export const ContributionsPage: React.FC = () => {
   const { showToast } = useToast();
@@ -51,12 +47,10 @@ export const ContributionsPage: React.FC = () => {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [activeTab, setActiveTab] = useState<"entry" | "summary">("entry");
 
-  // Grid local state for high-velocity editing
+  // Grid local state
   const [gridData, setGridData] = useState<EditableRowData[]>([]);
-  const [isDirty, setIsDirty] = useState<boolean>(false);
-
-  // References to amount input elements by member index for keyboard navigation
-  const inputRefs = useRef<Map<number, HTMLInputElement>>(new Map());
+  const [selectedMemberForModal, setSelectedMemberForModal] = useState<EditableRowData | null>(null);
+  const [selectedMemberIdForDrawer, setSelectedMemberIdForDrawer] = useState<string | null>(null);
 
   // 1. Fetch Cutoff Periods
   const { data: cutoffs = [], isLoading: isLoadingCutoffs } = useQuery<CutoffPeriod[]>({
@@ -101,16 +95,9 @@ export const ContributionsPage: React.FC = () => {
   // Sync server data to local editable grid state
   useEffect(() => {
     if (serverCutoffContributions.length > 0) {
-      setGridData(
-        serverCutoffContributions.map((item) => ({
-          ...item,
-          isModified: false,
-        }))
-      );
-      setIsDirty(false);
+      setGridData(serverCutoffContributions);
     } else {
       setGridData([]);
-      setIsDirty(false);
     }
   }, [serverCutoffContributions]);
 
@@ -123,280 +110,57 @@ export const ContributionsPage: React.FC = () => {
     },
   });
 
-  // 4. Batch Save & Post Mutation
-  const saveMutation = useMutation({
-    mutationFn: async (payload: BatchContributionItem[]) => {
-      const res = await api.post<BatchContributionResult>("/contributions/batch", payload);
+  // 4. Finalize Cutoff Mutation (POST /api/cutoffs/{id}/finalize)
+  const finalizeMutation = useMutation({
+    mutationFn: async (cutoffId: string) => {
+      const res = await api.post(`/cutoffs/${cutoffId}/finalize`);
       return res.data;
-    },
-    onMutate: async (newContributions) => {
-      // Cancel queries to avoid overwriting optimistic data
-      await queryClient.cancelQueries({
-        queryKey: ["contributions-cutoff", selectedCutoffId],
-      });
-
-      // Snapshot previous value
-      const previousContributions = queryClient.getQueryData<CutoffMemberContribution[]>([
-        "contributions-cutoff",
-        selectedCutoffId,
-      ]);
-
-      // Optimistically update
-      if (previousContributions) {
-        const updated = previousContributions.map((item) => {
-          const match = newContributions.find((n) => n.memberId === item.memberId);
-          if (match) {
-            return {
-              ...item,
-              amount: match.amount,
-              paymentChannel: match.paymentChannel || item.paymentChannel,
-              recordedAt: new Date().toISOString(),
-            };
-          }
-          return item;
-        });
-        queryClient.setQueryData(["contributions-cutoff", selectedCutoffId], updated);
-      }
-
-      return { previousContributions };
     },
     onSuccess: (data) => {
       showToast(
         "success",
-        "Cutoff Contributions Posted",
-        data.message || `Successfully processed ${data.totalProcessed} records.`
+        "Cutoff Locked & Finalized",
+        data.message || `Cutoff period has been locked. Contributions are now read-only.`
       );
-      setIsDirty(false);
-      // Invalidate to ensure freshness with server totals
-      queryClient.invalidateQueries({
-        queryKey: ["contributions-cutoff", selectedCutoffId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["contributions-summary"],
-      });
+      queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
+      queryClient.invalidateQueries({ queryKey: ["contributions-cutoff", selectedCutoffId] });
+      queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
     },
-    onError: (err: any, _newContributions, context) => {
-      if (context?.previousContributions) {
-        queryClient.setQueryData(
-          ["contributions-cutoff", selectedCutoffId],
-          context.previousContributions
-        );
-      }
+    onError: (err: any) => {
       const errorMsg =
         err.response?.data?.detail ||
         err.response?.data?.message ||
         err.message ||
-        "Failed to post cutoff contributions.";
-      showToast("error", "Financial Validation Error", errorMsg);
+        "Failed to finalize cutoff.";
+      showToast("error", "Finalize Error", errorMsg);
     },
   });
 
-  // Handle amount edit for a single member
-  const handleAmountChange = useCallback((memberId: string, val: string) => {
-    // Sanitize non-numeric characters except decimal
-    const cleanVal = val.replace(/[^0-9.]/g, "");
-    const parsedAmount = cleanVal === "" ? 0 : parseFloat(cleanVal);
-
-    setGridData((prev) =>
-      prev.map((row) => {
-        if (row.memberId === memberId) {
-          return {
-            ...row,
-            amount: isNaN(parsedAmount) ? 0 : parsedAmount,
-            isModified: true,
-          };
-        }
-        return row;
-      })
-    );
-    setIsDirty(true);
-  }, []);
-
-  // Handle payment channel change
-  const handleChannelChange = useCallback((memberId: string, channel: PaymentChannel) => {
-    setGridData((prev) =>
-      prev.map((row) => {
-        if (row.memberId === memberId) {
-          return {
-            ...row,
-            paymentChannel: channel,
-            isModified: true,
-          };
-        }
-        return row;
-      })
-    );
-    setIsDirty(true);
-  }, []);
-
-  // Excel Copy-Paste handler for high-velocity payroll data entry
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLInputElement>, startRowIndex: number) => {
-      e.preventDefault();
-      const clipboardText = e.clipboardData.getData("text");
-      if (!clipboardText) return;
-
-      // Split lines (handles \r\n and \n)
-      const lines = clipboardText
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
-
-      if (lines.length === 0) return;
-
-      const pastedValues: number[] = [];
-      let hasNegative = false;
-
-      for (const line of lines) {
-        // If row has tabs (e.g. copied multi-columns from Excel), take first column or clean
-        const firstCol = line.split("\t")[0].trim();
-        // Remove currency symbols (₱, $, PHP), commas, spaces
-        const sanitized = firstCol.replace(/[₱$PHP,\s]/gi, "");
-        const num = parseFloat(sanitized);
-
-        if (!isNaN(num)) {
-          if (num < 0) {
-            hasNegative = true;
-          }
-          pastedValues.push(Math.max(0, num));
-        }
-      }
-
-      if (hasNegative) {
-        showToast(
-          "warning",
-          "Negative Values Detected",
-          "Negative values in the clipboard were clamped to ₱0.00 as co-op rules prohibit negative contributions."
-        );
-      }
-
-      if (pastedValues.length === 0) {
-        showToast("error", "Paste Failed", "No valid numerical values were detected in clipboard.");
-        return;
-      }
-
-      // Update the rows starting from startRowIndex
-      setGridData((prev) => {
-        const next = [...prev];
-        let pastedCount = 0;
-        for (let i = 0; i < pastedValues.length; i++) {
-          const targetIndex = startRowIndex + i;
-          if (targetIndex < next.length) {
-            next[targetIndex] = {
-              ...next[targetIndex],
-              amount: pastedValues[i],
-              isModified: true,
-            };
-            pastedCount++;
-          }
-        }
-        return next;
-      });
-
-      setIsDirty(true);
+  // 5. Reopen Cutoff Mutation (POST /api/cutoffs/{id}/reopen)
+  const reopenMutation = useMutation({
+    mutationFn: async (cutoffId: string) => {
+      const res = await api.post(`/cutoffs/${cutoffId}/reopen`);
+      return res.data;
+    },
+    onSuccess: (data) => {
       showToast(
         "success",
-        "Excel Data Pasted",
-        `Pasted ${Math.min(
-          pastedValues.length,
-          gridData.length - startRowIndex
-        )} values directly into the cutoff column.`
+        "Cutoff Reopened",
+        data.message || `Cutoff period has been reopened for editing.`
       );
+      queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
+      queryClient.invalidateQueries({ queryKey: ["contributions-cutoff", selectedCutoffId] });
+      queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
     },
-    [gridData.length, showToast]
-  );
-
-  // Keyboard navigation handler: Enter/Tab moves to next row, Shift+Enter to previous
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
-      if (e.key === "Enter" || e.key === "ArrowDown") {
-        e.preventDefault();
-        const nextIndex = e.shiftKey ? rowIndex - 1 : rowIndex + 1;
-        if (nextIndex >= 0 && nextIndex < gridData.length) {
-          const nextInput = inputRefs.current.get(nextIndex);
-          if (nextInput) {
-            nextInput.focus();
-            nextInput.select();
-          }
-        }
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        const prevIndex = rowIndex - 1;
-        if (prevIndex >= 0) {
-          const prevInput = inputRefs.current.get(prevIndex);
-          if (prevInput) {
-            prevInput.focus();
-            prevInput.select();
-          }
-        }
-      }
+    onError: (err: any) => {
+      const errorMsg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to reopen cutoff.";
+      showToast("error", "Reopen Error", errorMsg);
     },
-    [gridData.length]
-  );
-
-  // Discard local changes and reset to server values
-  const handleDiscard = useCallback(() => {
-    if (serverCutoffContributions.length > 0) {
-      setGridData(
-        serverCutoffContributions.map((item) => ({
-          ...item,
-          isModified: false,
-        }))
-      );
-      setIsDirty(false);
-      showToast("info", "Changes Discarded", "Reset back to last recorded server state.");
-    }
-  }, [serverCutoffContributions, showToast]);
-
-  // Bulk fill utility for rapid test/payroll operations
-  const handleBulkFill = useCallback(
-    (defaultAmount: number) => {
-      setGridData((prev) =>
-        prev.map((row) => ({
-          ...row,
-          amount: defaultAmount,
-          isModified: true,
-        }))
-      );
-      setIsDirty(true);
-      showToast(
-        "info",
-        "Bulk Pre-filled",
-        `Set ₱${defaultAmount.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-        })} across all active members.`
-      );
-    },
-    [showToast]
-  );
-
-  // Submit batch to backend
-  const handleSaveAndPost = useCallback(() => {
-    if (!selectedCutoffId) {
-      showToast("error", "No Cutoff Selected", "Please select a valid cutoff period first.");
-      return;
-    }
-
-    // Financial Validation before sending
-    const invalidItem = gridData.find((item) => item.amount < 0);
-    if (invalidItem) {
-      showToast(
-        "error",
-        "Financial Validation Error",
-        `Negative amount detected for ${invalidItem.memberName}. Cannot post negative contributions.`
-      );
-      return;
-    }
-
-    const payload: BatchContributionItem[] = gridData.map((item) => ({
-      memberId: item.memberId,
-      cutoffId: selectedCutoffId,
-      amount: item.amount || 0,
-      paymentChannel: item.paymentChannel,
-    }));
-
-    saveMutation.mutate(payload);
-  }, [selectedCutoffId, gridData, saveMutation, showToast]);
+  });
 
   // Calculations for Summary Banner
   const totalThisCutoff = useMemo(() => {
@@ -463,89 +227,29 @@ export const ContributionsPage: React.FC = () => {
         },
       },
       {
-        accessorKey: "paymentChannel",
-        header: "Payment Channel",
-        cell: ({ row }) => (
-          <select
-            value={row.original.paymentChannel}
-            onChange={(e) =>
-              handleChannelChange(row.original.memberId, e.target.value as PaymentChannel)
-            }
-            className="text-xs font-medium bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
-          >
-            <option value="PAYROLL_DEDUCTION">Payroll Deduction</option>
-            <option value="CASH">Cash Deposit</option>
-            <option value="BANK_TRANSFER">Bank Transfer</option>
-          </select>
-        ),
-      },
-      {
-        accessorKey: "amount",
-        header: () => (
-          <div className="flex items-center justify-end gap-1.5">
-            <Coins className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="font-semibold text-xs tracking-wider uppercase text-slate-600">
-              Contribution (₱)
-            </span>
-          </div>
-        ),
-        cell: ({ row }) => {
-          const isModified = row.original.isModified;
-          const index = row.index;
-
-          return (
-            <div className="flex items-center justify-end gap-2">
-              {isModified && (
-                <span
-                  className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"
-                  title="Unsaved changes"
-                />
-              )}
-              <div className="relative w-44">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
-                  ₱
-                </span>
-                <input
-                  ref={(el) => {
-                    if (el) {
-                      inputRefs.current.set(index, el);
-                    } else {
-                      inputRefs.current.delete(index);
-                    }
-                  }}
-                  type="text"
-                  inputMode="decimal"
-                  value={row.original.amount === 0 ? "" : row.original.amount}
-                  placeholder="0.00"
-                  onChange={(e) => handleAmountChange(row.original.memberId, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(e, index)}
-                  onPaste={(e) => handlePaste(e, index)}
-                  onFocus={(e) => e.target.select()}
-                  className={`w-full text-right font-mono font-bold text-sm pl-7 pr-3 py-1.5 rounded-lg border transition-all focus:outline-none focus:ring-2 ${
-                    isModified
-                      ? "bg-amber-50/50 border-amber-300 text-amber-950 focus:ring-amber-400/30 focus:border-amber-500"
-                      : row.original.amount > 0
-                      ? "bg-emerald-50/30 border-slate-300 text-emerald-950 focus:ring-emerald-500/30 focus:border-emerald-600"
-                      : "bg-white border-slate-200 text-slate-800 focus:ring-slate-400/20 focus:border-slate-400"
-                  }`}
-                />
-              </div>
-            </div>
-          );
-        },
-      },
-      {
         accessorKey: "recordedAt",
         header: () => <div className="text-right">Ledger Status</div>,
         cell: ({ row }) => {
-          const isRecorded = !!row.original.contributionId;
+          const isRecorded = Boolean(row.original.contributionId);
+          const amount = Number(row.original.amount) || 0;
+
           return (
-            <div className="text-right">
+            <div className="flex flex-col items-end">
               {isRecorded ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  Recorded
-                </span>
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono font-bold text-sm text-emerald-800">
+                      ₱{amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/70 border border-emerald-200 px-1.5 py-0.5 rounded-full">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      Recorded
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-400 capitalize mt-0.5">
+                    {row.original.paymentChannel?.toLowerCase().replace(/_/g, " ")}
+                  </span>
+                </>
               ) : (
                 <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
                   Unrecorded
@@ -555,8 +259,36 @@ export const ContributionsPage: React.FC = () => {
           );
         },
       },
+      {
+        id: "actions",
+        header: () => <div className="text-right">Action</div>,
+        cell: ({ row }) => {
+          return (
+            <div className="flex items-center justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setSelectedMemberForModal(row.original)}
+                className="px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold border shadow-2xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 border-emerald-200 hover:border-emerald-300"
+                title="Record contribution for this cutoff"
+              >
+                <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                Record
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedMemberIdForDrawer(row.original.memberId)}
+                className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                title="View member statement and history"
+              >
+                <Eye className="w-4 h-4" />
+              </button>
+            </div>
+          );
+        },
+      },
     ],
-    [handleAmountChange, handleChannelChange, handleKeyDown, handlePaste]
+    []
   );
 
   // Filter grid by search term
@@ -776,82 +508,60 @@ export const ContributionsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Quick Actions & Save Button */}
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Keyboard shortcuts & Excel helper tooltip banner */}
-              <div className="hidden xl:flex items-center gap-2 text-[11px] text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-xl">
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>
-                  Paste Excel column (<kbd className="font-mono bg-slate-100 px-1 rounded">Ctrl+V</kbd>) or navigate with <kbd className="font-mono bg-slate-100 px-1 rounded">Enter</kbd> / <kbd className="font-mono bg-slate-100 px-1 rounded">Tab</kbd>
-                </span>
-              </div>
+            {/* Lock & Finalize Cutoff Button */}
+            <div className="flex items-center gap-2.5">
 
-              {/* Pre-fill presets */}
-              <div className="flex items-center gap-1 border border-slate-200 rounded-xl bg-white p-0.5">
+              {/* Lock & Finalize Cutoff Button */}
+              {selectedCutoff?.isClosed ? (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-xs font-bold px-3.5 py-2 rounded-xl bg-slate-100 text-slate-500 border border-slate-200 shadow-xs">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    Cutoff Finalized
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Reopen cutoff "${selectedCutoff.label}" for editing?`)) {
+                        reopenMutation.mutate(selectedCutoff.id);
+                      }
+                    }}
+                    disabled={reopenMutation.isPending}
+                    className="text-xs font-semibold px-2.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                    title="Reopen cutoff for editing"
+                  >
+                    {reopenMutation.isPending ? "Reopening..." : "Reopen"}
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={() => handleBulkFill(1000)}
-                  className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 px-2 py-1 rounded-lg transition-colors"
-                  title="Preset ₱1,000 for all members"
+                  onClick={() => {
+                    if (!selectedCutoffId) return;
+                    if (
+                      window.confirm(
+                        `Lock and finalize cutoff "${selectedCutoff?.label}"?\n\nOnce locked, contributions will be finalized and become read-only.`
+                      )
+                    ) {
+                      finalizeMutation.mutate(selectedCutoffId);
+                    }
+                  }}
+                  disabled={finalizeMutation.isPending || !selectedCutoffId}
+                  className="flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50"
+                  title="Lock and finalize this cutoff period"
                 >
-                  Set ₱1K
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBulkFill(2500)}
-                  className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50 px-2 py-1 rounded-lg transition-colors"
-                  title="Preset ₱2,500 for all members"
-                >
-                  Set ₱2.5K
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleBulkFill(0)}
-                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 px-2 py-1 rounded-lg transition-colors"
-                  title="Clear all amounts to 0"
-                >
-                  Clear
-                </button>
-              </div>
-
-              {/* Discard button */}
-              {isDirty && (
-                <button
-                  type="button"
-                  onClick={handleDiscard}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl transition-colors shadow-xs"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Discard
+                  {finalizeMutation.isPending ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Finalizing...
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-3.5 h-3.5 text-emerald-400" />
+                      Lock & Finalize Cutoff
+                    </>
+                  )}
                 </button>
               )}
-
-              {/* Save & Post Cutoff Button */}
-              <button
-                type="button"
-                onClick={handleSaveAndPost}
-                disabled={saveMutation.isPending || !selectedCutoffId}
-                className={`flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm ${
-                  isDirty
-                    ? "bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-500/20 shadow-emerald-700/20 animate-pulse hover:animate-none"
-                    : "bg-slate-900 hover:bg-slate-800 text-white"
-                } ${saveMutation.isPending ? "opacity-75 cursor-not-allowed" : ""}`}
-              >
-                {saveMutation.isPending ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Posting Cutoff...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-3.5 h-3.5" />
-                    Save & Post Cutoff
-                    {isDirty && (
-                      <span className="w-2 h-2 rounded-full bg-amber-400 ml-0.5" />
-                    )}
-                  </>
-                )}
-              </button>
             </div>
           </div>
 
@@ -886,9 +596,7 @@ export const ContributionsPage: React.FC = () => {
                   {table.getRowModel().rows.map((row) => (
                     <tr
                       key={row.id}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        row.original.isModified ? "bg-amber-50/20" : ""
-                      }`}
+                      className="hover:bg-slate-50/80 transition-colors"
                     >
                       {row.getVisibleCells().map((cell) => (
                         <td key={cell.id} className="py-3 px-4">
@@ -948,6 +656,7 @@ export const ContributionsPage: React.FC = () => {
                     <th className="py-3 px-4 text-center">Cutoffs Remitted</th>
                     <th className="py-3 px-4 text-right">Total Cumulative Capital (₱)</th>
                     <th className="py-3 px-4 text-right">Last Contribution</th>
+                    <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -976,6 +685,16 @@ export const ContributionsPage: React.FC = () => {
                             })
                           : "None"}
                       </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedMemberIdForDrawer(m.memberId)}
+                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors inline-flex items-center"
+                          title="View member statement and history"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -984,6 +703,21 @@ export const ContributionsPage: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Modal: Record / Edit Contribution */}
+      <ContributionModal
+        isOpen={Boolean(selectedMemberForModal)}
+        onClose={() => setSelectedMemberForModal(null)}
+        member={selectedMemberForModal}
+        cutoff={selectedCutoff || null}
+      />
+
+      {/* Drawer: Member Details & Ledger */}
+      <MemberDetailsDrawer
+        memberId={selectedMemberIdForDrawer}
+        isOpen={Boolean(selectedMemberIdForDrawer)}
+        onClose={() => setSelectedMemberIdForDrawer(null)}
+      />
     </div>
   );
 };

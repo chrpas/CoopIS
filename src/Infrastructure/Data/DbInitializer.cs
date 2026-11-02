@@ -170,7 +170,7 @@ public static class DbInitializer
                             MemberId = member.Id,
                             CutoffId = cutoff.Id,
                             Amount = sc.Amount,
-                            PaymentChannel = PaymentChannel.PAYROLL_DEDUCTION,
+                            PaymentChannel = PaymentChannel.CASH,
                             CreatedAt = cutoff.CutoffDate
                         });
                     }
@@ -244,6 +244,7 @@ public static class DbInitializer
                             PrincipalPaid = sr.Amount,
                             LatePenaltyPaid = 0.00m,
                             PaymentDate = cutoff.CutoffDate,
+                            PaymentChannel = PaymentChannel.CASH,
                             IsDelayed = false,
                             RecordedAt = cutoff.CutoffDate
                         });
@@ -291,6 +292,21 @@ public static class DbInitializer
             await context.SaveChangesAsync();
 
             logger.LogInformation("Cooperative spreadsheet data seeded successfully! All 28 members, contributions, and 64 loans loaded.");
+        }
+
+        // Migrate any historical contributions recorded under PAYROLL_DEDUCTION to CASH
+        var payrollContributions = await context.Contributions
+            .Where(c => c.PaymentChannel == PaymentChannel.PAYROLL_DEDUCTION)
+            .ToListAsync();
+
+        if (payrollContributions.Count > 0)
+        {
+            foreach (var pc in payrollContributions)
+            {
+                pc.PaymentChannel = PaymentChannel.CASH;
+            }
+            await context.SaveChangesAsync();
+            logger.LogInformation("Converted {Count} contributions from PAYROLL_DEDUCTION to CASH.", payrollContributions.Count);
         }
     }
 

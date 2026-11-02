@@ -18,10 +18,20 @@ Enterprise-grade Cooperative Financial Management & Lending Platform engineered 
 - Complete loan origination with upfront interest computation and net proceeds release
 - Semi-monthly amortization calculations (`CutoffPaymentAmount = PrincipalAmount / CutoffsCount`)
 - Multi-status approval lifecycle: `PENDING_APPROVAL` → `APPROVED` → `ACTIVE` → `PAID`
+- **Comprehensive Amortization Schedule & Repayment Management UI**:
+  - Detailed modal/drawer tracking all scheduled cut-offs, installment numbers, scheduled amounts, principal paid, remaining balance, and status badges (`Paid`, `Overdue`, `Upcoming`).
+  - Top summary cards highlighting Total Principal, Remaining Balance (with visual progress bar), and Total Penalties Collected.
+  - Direct **[Record Payment]** modal per installment supporting principal payment, late penalties, and payment channel tracking.
+- **Late Penalty Tracking & 14-Day Grace Policy**:
+  - Strict backend validation enforcing payment against cutoff date + 14-day grace period.
+  - Automated 5% penalty calculation for overdue cutoffs.
+  - Dynamic remaining balance recalculation: `remainingBalance = principalAmount - sum(repayments.principalPaid)`.
 - Accessible by both **Administrator** and **Loan Officer (User)**
 
 ### 💰 Contributions & Capital Build-up (`/contributions`)
-- Semi-monthly member share capital tracking via payroll deduction, cash, and bank transfer
+- Semi-monthly member share capital tracking with modal-based recording per cutoff row
+- Default payment channel configured to **Cash Deposit** (with support for Payroll Deduction and Bank Transfer)
+- Period finalization workflow with "Lock & Finalize Cutoff" safeguards
 - Real-time capital build-up accumulation *(Admin only)*
 
 ### ⚖️ Depository Bank Reconciliation (`/accounting`)

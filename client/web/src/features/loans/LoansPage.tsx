@@ -4,19 +4,16 @@ import { api } from "../../services/api";
 import { Loan, Member, LoanStatus, AmortizationScheduleItem } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { LoanOriginationWizard } from "./LoanOriginationWizard";
+import { AmortizationScheduleModal } from "./AmortizationScheduleModal";
 import { RecordRepaymentModal } from "./RecordRepaymentModal";
 import { LoanPenaltiesModal } from "./LoanPenaltiesModal";
 import {
   Plus,
   CheckCircle,
   Clock,
-  Ban,
   FileText,
   Calendar,
-  X,
-  AlertCircle,
-  CreditCard,
-  CheckCircle2,
+  Ban,
 } from "lucide-react";
 
 export const LoansPage: React.FC = () => {
@@ -49,7 +46,7 @@ export const LoansPage: React.FC = () => {
   });
 
   // Query amortization schedule for selected loan
-  const { data: schedule = [], isLoading: isLoadingSchedule } = useQuery<AmortizationScheduleItem[]>({
+  const { data: schedule = [] } = useQuery<AmortizationScheduleItem[]>({
     queryKey: ["loan-schedule", selectedLoanForSchedule?.id],
     queryFn: async () => {
       if (!selectedLoanForSchedule) return [];
@@ -309,201 +306,15 @@ export const LoansPage: React.FC = () => {
         members={members}
       />
 
-      {/* Amortization Schedule & Repayment Engine Modal */}
-      {selectedLoanForSchedule && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Calendar className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <h3 className="font-bold text-sm">Amortization Schedule: {selectedLoanForSchedule.loanReference}</h3>
-                  <p className="text-xs text-slate-300">
-                    Borrower: {selectedLoanForSchedule.memberName} • ₱{Number(selectedLoanForSchedule.principalAmount).toLocaleString()} Principal • 3-Day Grace Policy
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsPenaltiesModalOpen(true)}
-                  className="px-2.5 py-1.5 text-xs font-semibold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="View Late Penalties Audit"
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  Audit Penalties
-                </button>
-                <button
-                  onClick={() => setSelectedLoanForSchedule(null)}
-                  className="text-slate-400 hover:text-white p-1 cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+      {/* Detailed Amortization Schedule & Repayment Engine Modal */}
+      <AmortizationScheduleModal
+        loan={selectedLoanForSchedule}
+        isOpen={Boolean(selectedLoanForSchedule)}
+        onClose={() => setSelectedLoanForSchedule(null)}
+        onOpenPenaltiesAudit={() => setIsPenaltiesModalOpen(true)}
+      />
 
-            <div className="p-6 space-y-4 overflow-y-auto">
-              {/* Stats Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div className="text-[11px] text-slate-500 font-semibold uppercase">Cutoff Payment</div>
-                  <div className="text-base font-bold text-slate-900 mt-0.5 font-mono">
-                    ₱{Number(selectedLoanForSchedule.cutoffPaymentAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-xl">
-                  <div className="text-[11px] text-amber-700 font-semibold uppercase">5% Upfront Int.</div>
-                  <div className="text-base font-bold text-amber-800 mt-0.5 font-mono">
-                    ₱{Number(selectedLoanForSchedule.interestEarned).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <div className="text-[11px] text-emerald-700 font-semibold uppercase">Net Disbursed</div>
-                  <div className="text-base font-bold text-emerald-800 mt-0.5 font-mono">
-                    ₱{Number(selectedLoanForSchedule.releasedAmount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="p-3 bg-amber-100/70 border border-amber-300 rounded-xl">
-                  <div className="text-[11px] text-amber-900 font-semibold uppercase flex items-center justify-center gap-1">
-                    <Clock className="w-3 h-3 text-amber-700" /> Late Penalties Paid
-                  </div>
-                  <div className="text-base font-extrabold text-amber-950 mt-0.5 font-mono">
-                    ₱{Number(
-                      selectedLoanForSchedule.totalLatePenalties ||
-                        schedule.reduce((acc, s) => acc + (s.latePenaltyPaid || 0), 0)
-                    ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </div>
-
-              {/* Schedule Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
-                {isLoadingSchedule ? (
-                  <div className="p-8 text-center text-xs text-slate-500">Loading schedule items...</div>
-                ) : schedule.length === 0 ? (
-                  <div className="p-8 text-center text-xs text-slate-500">
-                    No scheduled cutoffs recorded yet. (Activate or Approve the loan to populate future cutoffs).
-                  </div>
-                ) : (
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200 sticky top-0">
-                      <tr>
-                        <th className="py-2.5 px-3">#</th>
-                        <th className="py-2.5 px-3">Cutoff Period</th>
-                        <th className="py-2.5 px-3 text-right">Scheduled Principal</th>
-                        <th className="py-2.5 px-3 text-right">Principal Paid</th>
-                        <th className="py-2.5 px-3 text-right">Late Penalty (₱)</th>
-                        <th className="py-2.5 px-3 text-right">Remaining</th>
-                        <th className="py-2.5 px-3 text-center">Status & Delay</th>
-                        <th className="py-2.5 px-3 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {schedule.map((item) => {
-                        const isOverdue = item.status === "OVERDUE";
-                        const isDelayed = item.isDelayed;
-
-                        return (
-                          <tr
-                            key={item.installmentNumber}
-                            className={`transition-colors ${
-                              isOverdue
-                                ? "bg-rose-50/40 hover:bg-rose-50/70"
-                                : isDelayed
-                                ? "bg-amber-50/30 hover:bg-amber-50/60"
-                                : "hover:bg-slate-50/70"
-                            }`}
-                          >
-                            <td className="py-2.5 px-3 font-semibold text-slate-600">
-                              {item.installmentNumber}
-                            </td>
-                            <td className="py-2.5 px-3 font-medium text-slate-900">
-                              <span className="px-2 py-0.5 rounded bg-slate-100 font-bold mr-1.5 font-mono">
-                                {item.cutoffLabel}
-                              </span>
-                              <span className="text-slate-400">
-                                {new Date(item.cutoffDate).toLocaleDateString()}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
-                              ₱{Number(item.scheduledPrincipal).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-emerald-700 font-semibold font-mono">
-                              ₱{Number(item.principalPaid).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono">
-                              {Number(item.latePenaltyPaid || 0) > 0 ? (
-                                <span className="font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded">
-                                  ₱{Number(item.latePenaltyPaid).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400">₱0.00</span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-right text-slate-600 font-medium font-mono">
-                              ₱{Number(item.remainingBalance).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              {isOverdue ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                                  <AlertCircle className="w-3 h-3 text-rose-600" />
-                                  OVERDUE {item.daysOverdue ? `(${item.daysOverdue}d late)` : ""}
-                                </span>
-                              ) : isDelayed ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                  <Clock className="w-3 h-3 text-amber-600" />
-                                  DELAYED {item.daysOverdue ? `(${item.daysOverdue}d late)` : ""}
-                                </span>
-                              ) : item.status === "PAID" ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  PAID
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
-                                  PENDING
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <button
-                                onClick={() => {
-                                  setSelectedCutoffForRepayment(item);
-                                  setIsRepaymentModalOpen(true);
-                                }}
-                                className="px-2.5 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors cursor-pointer flex items-center gap-1 mx-auto"
-                                title="Log repayment for this cutoff"
-                              >
-                                <CreditCard className="w-3 h-3" />
-                                {item.status === "PAID" ? "Add Fee" : "Pay Cutoff"}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-
-            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-              <div className="text-xs text-slate-500 flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                <span>Payments automatically reconcile with the cooperative fund audit ledger.</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedLoanForSchedule(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-              >
-                Close Schedule
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Record Repayment Modal */}
+      {/* Record Repayment Modal (for penalties audit pay button fallback) */}
       <RecordRepaymentModal
         loan={selectedLoanForSchedule}
         cutoffItem={selectedCutoffForRepayment}

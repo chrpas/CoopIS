@@ -1,4 +1,5 @@
 using System;
+using CoopIS.Domain.Enums;
 
 namespace CoopIS.Domain.Entities;
 
@@ -10,6 +11,7 @@ public class LoanRepayment
     public decimal PrincipalPaid { get; set; } = 0.00m;
     public decimal LatePenaltyPaid { get; set; } = 0.00m;
     public DateTime? PaymentDate { get; set; }
+    public PaymentChannel? PaymentChannel { get; set; } = CoopIS.Domain.Enums.PaymentChannel.CASH;
     public bool IsDelayed { get; set; } = false;
     public string? Notes { get; set; }
     public DateTime RecordedAt { get; set; } = DateTime.UtcNow;
