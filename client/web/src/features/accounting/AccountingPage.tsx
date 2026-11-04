@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import {
@@ -65,6 +65,7 @@ export const AccountingPage: React.FC = () => {
     data: fundRecon,
     isLoading: isLoadingFR,
     refetch: refetchFR,
+    isFetching: isFetchingFR,
   } = useQuery<FundReconciliation>({
     queryKey: ["accounting-fund-reconciliation"],
     queryFn: async () => {
@@ -77,6 +78,8 @@ export const AccountingPage: React.FC = () => {
   const {
     data: reconciliations = [],
     isLoading: isLoadingRecons,
+    refetch: refetchRecons,
+    isFetching: isFetchingRecons,
   } = useQuery<BankReconciliation[]>({
     queryKey: ["accounting-reconciliations"],
     queryFn: async () => {
@@ -86,13 +89,44 @@ export const AccountingPage: React.FC = () => {
   });
 
   // 4. Fetch Cutoffs for selector in recon modal
-  const { data: cutoffs = [] } = useQuery<CutoffPeriod[]>({
+  const { data: cutoffs = [], refetch: refetchCutoffs } = useQuery<CutoffPeriod[]>({
     queryKey: ["cutoff-periods"],
     queryFn: async () => {
       const res = await api.get<CutoffPeriod[]>("/cutoff-periods");
       return res.data;
     },
   });
+
+  // Filter cutoff periods to ONLY those that have NOT been reconciled yet
+  const unreconciledCutoffs = useMemo(() => {
+    const reconciledIds = new Set<string>();
+    const reconciledLabels = new Set<string>();
+
+    reconciliations.forEach((r) => {
+      if (r.cutoffId) reconciledIds.add(r.cutoffId);
+      if (r.cutoffLabel) reconciledLabels.add(r.cutoffLabel);
+    });
+
+    return [...cutoffs]
+      .filter((c) => !reconciledIds.has(c.id) && !reconciledLabels.has(c.label))
+      .sort((a, b) => new Date(a.cutoffDate).getTime() - new Date(b.cutoffDate).getTime());
+  }, [cutoffs, reconciliations]);
+
+  // Auto-select the first unreconciled cutoff period when opening the modal
+  useEffect(() => {
+    if (!isReconModalOpen) return;
+    if (unreconciledCutoffs.length > 0) {
+      if (!cutoffId || !unreconciledCutoffs.some((c) => c.id === cutoffId)) {
+        const firstUnreconciled = unreconciledCutoffs[0];
+        setCutoffId(firstUnreconciled.id);
+        setStatementDate(new Date(firstUnreconciled.cutoffDate).toISOString().split("T")[0]);
+      }
+    } else {
+      setCutoffId("");
+    }
+  }, [isReconModalOpen, unreconciledCutoffs, cutoffId]);
+
+  const isRefreshingBooks = isFetchingBS || isFetchingFR || isFetchingRecons;
 
   // Auto-calculation of Withholding Tax (20%) and Net Bank Interest
   const calculatedTax = useMemo(() => {
@@ -105,8 +139,30 @@ export const AccountingPage: React.FC = () => {
 
   const calculatedNetInterest = useMemo(() => {
     const gross = parseFloat(grossInterestInput.replace(/[^0-9.]/g, "")) || 0;
-    return Math.max(0, gross - calculatedTax);
+    return Math.max(0, Math.round((gross - calculatedTax) * 100) / 100);
   }, [grossInterestInput, calculatedTax]);
+
+  const projectedBookBalance = useMemo(() => {
+    return Math.round(((fundRecon?.bookBalance || 0) + calculatedNetInterest) * 100) / 100;
+  }, [fundRecon?.bookBalance, calculatedNetInterest]);
+
+  // Check if the current projected book balance has already been used/reconciled in a previous Bank Statement Reconciliation
+  const isBookBalanceAlreadyUsed = useMemo(() => {
+    if (reconciliations.length === 0) return false;
+    const matchesLatestCash =
+      fundRecon !== undefined &&
+      Math.abs(projectedBookBalance - Number(fundRecon.cashInBank || 0)) < 0.01;
+    const matchesAnyRecordedStatement = reconciliations.some(
+      (r) => Math.abs(Number(r.cashInBank) - projectedBookBalance) < 0.01
+    );
+    return matchesLatestCash || matchesAnyRecordedStatement;
+  }, [reconciliations, fundRecon, projectedBookBalance]);
+
+  const projectedModalVariance = useMemo(() => {
+    const enteredCash = parseFloat(cashInBankInput.replace(/[^0-9.]/g, ""));
+    if (isNaN(enteredCash)) return null;
+    return Math.round((projectedBookBalance - enteredCash) * 100) / 100;
+  }, [projectedBookBalance, cashInBankInput]);
 
   // Submit Bank Reconciliation
   const createReconMutation = useMutation({
@@ -118,9 +174,11 @@ export const AccountingPage: React.FC = () => {
       showToast(
         "success",
         "Bank Reconciliation Recorded",
-        `Statement balance ₱${Number(data.cashInBank).toLocaleString()} posted with net interest ₱${Number(
-          data.netBankInterest
-        ).toLocaleString()}.`
+        `Statement balance ₱${Number(data.cashInBank).toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+        })} posted with net interest ₱${Number(data.netBankInterest).toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+        })}.`
       );
       setIsReconModalOpen(false);
       resetForm();
@@ -152,8 +210,26 @@ export const AccountingPage: React.FC = () => {
     const cash = parseFloat(cashInBankInput.replace(/[^0-9.]/g, ""));
     const gross = parseFloat(grossInterestInput.replace(/[^0-9.]/g, "")) || 0;
 
+    if (!cutoffId) {
+      showToast(
+        "error",
+        "Validation Error",
+        "Please select an unreconciled Cutoff Period for this bank statement."
+      );
+      return;
+    }
+
     if (isNaN(cash) || cash < 0) {
       showToast("error", "Validation Error", "Please enter a valid Cash in Bank amount.");
+      return;
+    }
+
+    if (calculatedTax > gross) {
+      showToast(
+        "error",
+        "Validation Error",
+        "Withholding tax cannot exceed the Bank Gross Interest amount."
+      );
       return;
     }
 
@@ -168,6 +244,7 @@ export const AccountingPage: React.FC = () => {
   };
 
   const hasVariance = fundRecon && Math.abs(fundRecon.variance) >= 0.01;
+  const isReconDisabled = !hasVariance || unreconciledCutoffs.length === 0;
 
   return (
     <div className="space-y-6">
@@ -192,17 +269,31 @@ export const AccountingPage: React.FC = () => {
             onClick={() => {
               refetchBS();
               refetchFR();
+              refetchRecons();
+              refetchCutoffs();
             }}
-            disabled={isFetchingBS}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl transition-colors shadow-xs"
+            disabled={isRefreshingBooks}
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-2 rounded-xl transition-colors shadow-xs cursor-pointer disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isFetchingBS ? "animate-spin text-emerald-600" : ""}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingBooks ? "animate-spin text-emerald-600" : ""}`} />
             Refresh Books
           </button>
 
           <button
             onClick={() => setIsReconModalOpen(true)}
-            className="flex items-center gap-1.5 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl transition-all shadow-sm shadow-emerald-900/10"
+            disabled={isReconDisabled}
+            title={
+              unreconciledCutoffs.length === 0
+                ? "All cutoff periods are already reconciled."
+                : !hasVariance
+                ? "Books are currently balanced & reconciled (₱0.00 variance). No reconciliation needed."
+                : "Post bank statement reconciliation"
+            }
+            className={`flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm ${
+              isReconDisabled
+                ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-70"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 cursor-pointer"
+            }`}
           >
             <Plus className="w-4 h-4" />
             Post Bank Reconciliation
@@ -226,7 +317,9 @@ export const AccountingPage: React.FC = () => {
             ₱{(balanceSheet?.totalEquity || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
           </div>
           <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-            <span>Capital ₱{(balanceSheet?.commonShareCapital || 0).toLocaleString()} + Surplus</span>
+            <span>
+              Capital ₱{(balanceSheet?.commonShareCapital || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })} + Surplus ₱{(balanceSheet?.netRetainedSurplus || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </span>
           </div>
         </div>
 
@@ -271,11 +364,13 @@ export const AccountingPage: React.FC = () => {
             <Calendar className="w-3 h-3 text-slate-400" />
             <span>
               {fundRecon?.latestStatementDate
-                ? `As of ${new Date(fundRecon.latestStatementDate).toLocaleDateString("en-US", {
+                ? `Last Statement: ₱${(fundRecon.cashInBank || 0).toLocaleString("en-US", {
+                    minimumFractionDigits: 2,
+                  })} (${new Date(fundRecon.latestStatementDate).toLocaleDateString("en-US", {
                     month: "short",
                     day: "numeric",
                     year: "numeric",
-                  })}`
+                  })})`
                 : "No statement recorded"}
             </span>
           </div>
@@ -307,8 +402,9 @@ export const AccountingPage: React.FC = () => {
             }`}
           >
             ₱
-            {Math.abs(fundRecon?.variance || 0).toLocaleString("en-US", {
+            {(hasVariance ? Math.abs(fundRecon?.variance || 0) : 0).toLocaleString("en-US", {
               minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
             })}
           </div>
           <div className="mt-1">
@@ -392,7 +488,9 @@ export const AccountingPage: React.FC = () => {
                     <tr className="border-b border-slate-100 hover:bg-slate-50/60">
                       <td className="py-3 px-6 text-slate-700">
                         <div className="font-semibold text-slate-800">Cash in Bank</div>
-                        <div className="text-xs text-slate-400">Latest reconciled depository balance</div>
+                        <div className="text-xs text-slate-400">
+                          Real-time cooperative book balance (Contributions + Loan & Penalty Receipts + Net Bank Interest − Loan Disbursals)
+                        </div>
                       </td>
                       <td className="py-3 px-6 text-right font-mono font-bold text-slate-900">
                         ₱{(balanceSheet?.cashInBank || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
@@ -401,7 +499,9 @@ export const AccountingPage: React.FC = () => {
                     <tr className="border-b border-slate-100 hover:bg-slate-50/60">
                       <td className="py-3 px-6 text-slate-700">
                         <div className="font-semibold text-slate-800">Accounts Receivable - Loans</div>
-                        <div className="text-xs text-slate-400">Sum of remaining balances across all active loans</div>
+                        <div className="text-xs text-slate-400">
+                          Sum of remaining principal balances across all {balanceSheet?.activeLoansCount ?? 0} schedule-verified active loans
+                        </div>
                       </td>
                       <td className="py-3 px-6 text-right font-mono font-bold text-slate-900">
                         ₱{(balanceSheet?.accountsReceivable || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
@@ -423,7 +523,13 @@ export const AccountingPage: React.FC = () => {
                     <tr className="border-b border-slate-100 hover:bg-slate-50/60">
                       <td className="py-3 px-6 text-slate-700">
                         <div className="font-semibold text-slate-800">Salaries & Honoraria Payable</div>
-                        <div className="text-xs text-slate-400">5% of Total Distributable Interest (Management Pool)</div>
+                        <div className="text-xs text-slate-400">
+                          {balanceSheet?.managementWeightPercent ?? 5}% of Total Distributable Interest (₱
+                          {(balanceSheet?.totalDistributableInterest || 0).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                          ) — Management Pool
+                        </div>
                       </td>
                       <td className="py-3 px-6 text-right font-mono font-bold text-slate-900">
                         ₱{(balanceSheet?.salariesHonorariaPayable || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
@@ -445,7 +551,9 @@ export const AccountingPage: React.FC = () => {
                     <tr className="border-b border-slate-100 hover:bg-slate-50/60">
                       <td className="py-3 px-6 text-slate-700">
                         <div className="font-semibold text-slate-800">Common Share Capital</div>
-                        <div className="text-xs text-slate-400">Total cumulative member share contributions</div>
+                        <div className="text-xs text-slate-400">
+                          Total cumulative member share contributions across all cutoff periods
+                        </div>
                       </td>
                       <td className="py-3 px-6 text-right font-mono font-bold text-slate-900">
                         ₱{(balanceSheet?.commonShareCapital || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
@@ -455,11 +563,15 @@ export const AccountingPage: React.FC = () => {
                       <td className="py-3 px-6 text-slate-700">
                         <div className="font-semibold text-slate-800">Net Retained Surplus</div>
                         <div className="text-xs text-slate-400">
-                          95% of Net Distributable Interest (Dividends & Patronage Pools)
+                          {(balanceSheet?.dividendWeightPercent ?? 65) + (balanceSheet?.patronageWeightPercent ?? 30)}% of Total Distributable Interest (Dividends {balanceSheet?.dividendWeightPercent ?? 65}%: ₱
+                          {(balanceSheet?.dividendPool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })} • Patronage {balanceSheet?.patronageWeightPercent ?? 30}%: ₱
+                          {(balanceSheet?.patronagePool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })})
                         </div>
                         {Number(balanceSheet?.totalLatePenalties || 0) > 0 && (
                           <div className="text-[11px] text-amber-700 font-semibold mt-0.5">
-                            Includes ₱{Number(balanceSheet?.totalLatePenalties).toLocaleString("en-US", { minimumFractionDigits: 2 })} in collected late penalties
+                            Includes ₱{Number(balanceSheet?.totalLatePenalties).toLocaleString("en-US", { minimumFractionDigits: 2 })} in loan schedule late penalties (Collected: ₱
+                            {Number(balanceSheet?.totalLatePenaltiesPaid || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })} • Accrued Overdue: ₱
+                            {Number(balanceSheet?.totalAccruedLatePenalties || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })})
                           </div>
                         )}
                       </td>
@@ -540,10 +652,24 @@ export const AccountingPage: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-amber-800 font-semibold">
-                        <span>• Late Penalty Revenue:</span>
+                        <span>• Late Penalty Revenue (All Loan Schedules):</span>
                         <span>
                           ₱{(fundRecon?.totalLatePenalties || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                         </span>
+                      </div>
+                      <div className="pl-3 text-[10px] text-slate-400 space-y-0.5">
+                        <div className="flex items-center justify-between">
+                          <span>◦ Collected (Paid) Penalties:</span>
+                          <span>
+                            ₱{(fundRecon?.totalLatePenaltiesPaid || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>◦ Accrued (Overdue Schedules):</span>
+                          <span>
+                            ₱{(fundRecon?.totalAccruedLatePenalties || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -601,14 +727,93 @@ export const AccountingPage: React.FC = () => {
               )}
             </div>
 
-            {/* Explanatory Policy Callout */}
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-600 space-y-1.5">
-              <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Statutory Surplus & Liability Distribution</span>
+            {/* Statutory Surplus & Liability Distribution Card */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-5 space-y-3">
+              <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <HelpCircle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-900">
+                      Statutory Surplus & Liability Distribution
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      Interest & late penalty revenue allocation across Liabilities and Member Equity
+                    </p>
+                  </div>
+                </div>
               </div>
-              <p className="leading-relaxed">
-                In compliance with Philippine cooperative financial policies, 5% of Total Distributable Interest is allocated to Salaries / Honoraria Payable (Liabilities), while the remaining 95% constitutes Net Retained Surplus for member dividend and patronage distribution.
+
+              <div className="space-y-2 font-mono text-xs">
+                <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-50">
+                  <span className="text-slate-600">(+) Loan Upfront Interest Earned</span>
+                  <span className="font-bold text-slate-900">
+                    ₱{(balanceSheet?.loanInterestIncome || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div className="px-2 py-1.5 rounded-lg bg-amber-50/60 border border-amber-100 space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-amber-900 font-semibold">(+) Late Penalty Revenue (All Schedules)</span>
+                    <span className="font-bold text-amber-900">
+                      ₱{(balanceSheet?.totalLatePenalties || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="pl-4 text-[10px] text-amber-800/80 flex items-center justify-between">
+                    <span>• Paid: ₱{(balanceSheet?.totalLatePenaltiesPaid || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                    <span>• Accrued Overdue: ₱{(balanceSheet?.totalAccruedLatePenalties || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-50">
+                  <span className="text-slate-600">(+) Net Bank Interest Earned</span>
+                  <span className="font-bold text-slate-900">
+                    ₱{(balanceSheet?.netBankInterest || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between px-2.5 py-2 rounded-lg bg-slate-100 border border-slate-200 font-bold">
+                  <span className="text-slate-800">(=) Total Distributable Interest</span>
+                  <span className="text-slate-900">
+                    ₱{(balanceSheet?.totalDistributableInterest || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div className="pt-1.5 space-y-1.5">
+                  <div className="flex items-center justify-between px-2 py-1 text-[11px] text-slate-600">
+                    <span>• General Dividend Pool ({balanceSheet?.dividendWeightPercent ?? 65}%) [Equity]</span>
+                    <span className="font-semibold text-emerald-700">
+                      ₱{(balanceSheet?.dividendPool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2 py-1 text-[11px] text-slate-600">
+                    <span>• Patronage Refund Pool ({balanceSheet?.patronageWeightPercent ?? 30}%) [Equity]</span>
+                    <span className="font-semibold text-emerald-700">
+                      ₱{(balanceSheet?.patronagePool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-emerald-50/70 border border-emerald-200/80 text-[11px] font-bold text-emerald-950">
+                    <span>
+                      (=) Net Retained Surplus ({(balanceSheet?.dividendWeightPercent ?? 65) + (balanceSheet?.patronageWeightPercent ?? 30)}%) [Member Equity]
+                    </span>
+                    <span>
+                      ₱{(balanceSheet?.netRetainedSurplus || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-800">
+                    <span>
+                      (=) Salaries & Honoraria Payable ({balanceSheet?.managementWeightPercent ?? 5}%) [Liabilities]
+                    </span>
+                    <span>
+                      ₱{(balanceSheet?.salariesHonorariaPayable || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 leading-relaxed pt-1 border-t border-slate-100">
+                In compliance with Philippine cooperative financial policies, {balanceSheet?.managementWeightPercent ?? 5}% of Total Distributable Interest is allocated to Salaries / Honoraria Payable (Liabilities), while the remaining {(balanceSheet?.dividendWeightPercent ?? 65) + (balanceSheet?.patronageWeightPercent ?? 30)}% constitutes Net Retained Surplus for member dividend and patronage distribution.
               </p>
             </div>
           </div>
@@ -628,7 +833,19 @@ export const AccountingPage: React.FC = () => {
             </div>
             <button
               onClick={() => setIsReconModalOpen(true)}
-              className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
+              disabled={isReconDisabled}
+              title={
+                unreconciledCutoffs.length === 0
+                  ? "All cutoff periods are already reconciled."
+                  : !hasVariance
+                  ? "Books are currently balanced & reconciled (₱0.00 variance)."
+                  : "Post new statement"
+              }
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 border ${
+                isReconDisabled
+                  ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-70"
+                  : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 cursor-pointer"
+              }`}
             >
               <Plus className="w-3.5 h-3.5" /> New Statement
             </button>
@@ -752,46 +969,90 @@ export const AccountingPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleReconSubmit} className="p-6 space-y-4 text-sm">
-              <div className="grid grid-cols-2 gap-3">
-                {/* Statement Date */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Statement Date *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={statementDate}
-                    onChange={(e) => setStatementDate(e.target.value)}
-                    className="w-full text-xs font-medium px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
-                  />
+              {unreconciledCutoffs.length === 0 ? (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-medium flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>All scheduled cutoff periods have already been reconciled.</span>
                 </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Statement Date */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Statement Date *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={statementDate}
+                      onChange={(e) => setStatementDate(e.target.value)}
+                      className="w-full text-xs font-medium px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
 
-                {/* Fiscal Cutoff Period (Optional) */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                    Cutoff Period
-                  </label>
-                  <select
-                    value={cutoffId}
-                    onChange={(e) => setCutoffId(e.target.value)}
-                    className="w-full text-xs font-medium px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
-                  >
-                    <option value="">Unassigned</option>
-                    {cutoffs.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label} ({c.fiscalYear})
-                      </option>
-                    ))}
-                  </select>
+                  {/* Unreconciled Fiscal Cutoff Period */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        Cutoff Period *
+                      </label>
+                      <span className="text-[10px] font-semibold text-emerald-700">
+                        {unreconciledCutoffs.length} unreconciled
+                      </span>
+                    </div>
+                    <select
+                      required
+                      value={cutoffId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setCutoffId(nextId);
+                        const match = unreconciledCutoffs.find((c) => c.id === nextId);
+                        if (match) {
+                          setStatementDate(new Date(match.cutoffDate).toISOString().split("T")[0]);
+                        }
+                      }}
+                      className="w-full text-xs font-bold px-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer"
+                    >
+                      {unreconciledCutoffs.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label} ({c.fiscalYear})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Cash in Bank */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Cash in Bank (₱) *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Cash in Bank (₱) *
+                  </label>
+                  {!isBookBalanceAlreadyUsed ? (
+                    <button
+                      type="button"
+                      onClick={() => setCashInBankInput(projectedBookBalance.toFixed(2))}
+                      className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
+                    >
+                      Use Book Balance (₱
+                      {projectedBookBalance.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                      )
+                    </button>
+                  ) : (
+                    <span className="text-[10px] font-semibold text-slate-400 italic">
+                      Book Balance (₱
+                      {projectedBookBalance.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                      ) already reconciled
+                    </span>
+                  )}
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
                   <input
@@ -805,7 +1066,9 @@ export const AccountingPage: React.FC = () => {
                     className="w-full font-mono font-bold text-slate-900 pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
                   />
                 </div>
-                <p className="text-[11px] text-slate-400 mt-1">Exact ending balance printed on official bank statement.</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Exact ending balance printed on official bank statement.
+                </p>
               </div>
 
               {/* Gross Interest & Withholding Tax */}
@@ -836,7 +1099,7 @@ export const AccountingPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setIsTaxCustom(!isTaxCustom)}
-                      className="text-[10px] text-indigo-600 hover:underline"
+                      className="text-[10px] text-indigo-600 hover:underline cursor-pointer"
                     >
                       {isTaxCustom ? "Auto 20%" : "Custom"}
                     </button>
@@ -861,15 +1124,35 @@ export const AccountingPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Net Interest Calculation Box */}
-              <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
-                <span className="font-semibold text-emerald-950 flex items-center gap-1">
-                  <Percent className="w-3.5 h-3.5 text-emerald-600" />
-                  Auto-calculated Net Bank Interest:
-                </span>
-                <span className="font-mono font-bold text-emerald-800 text-sm">
-                  ₱{calculatedNetInterest.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                </span>
+              {/* Net Interest & Projected Variance Calculation Box */}
+              <div className="p-3 bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-emerald-950 flex items-center gap-1">
+                    <Percent className="w-3.5 h-3.5 text-emerald-600" />
+                    Auto-calculated Net Bank Interest:
+                  </span>
+                  <span className="font-mono font-bold text-emerald-800 text-sm">
+                    ₱{calculatedNetInterest.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                {projectedModalVariance !== null && (
+                  <div className="pt-1.5 border-t border-emerald-200/70 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600">Projected Reconciliation Variance:</span>
+                    <span
+                      className={`font-mono font-bold ${
+                        Math.abs(projectedModalVariance) < 0.01
+                          ? "text-emerald-700"
+                          : "text-rose-700"
+                      }`}
+                    >
+                      ₱
+                      {Math.abs(projectedModalVariance).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}{" "}
+                      {Math.abs(projectedModalVariance) < 0.01 ? "(Balanced)" : "(Discrepancy)"}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Audit Notes */}
@@ -891,14 +1174,14 @@ export const AccountingPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsReconModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={createReconMutation.isPending}
-                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-sm shadow-emerald-900/10 flex items-center gap-2"
+                  disabled={createReconMutation.isPending || unreconciledCutoffs.length === 0}
+                  className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-sm shadow-emerald-900/10 flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   {createReconMutation.isPending ? (
                     <>

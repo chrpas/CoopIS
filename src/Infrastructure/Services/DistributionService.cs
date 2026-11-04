@@ -27,28 +27,104 @@ public class DistributionService : IDistributionService
     public async Task<DistributionPreviewDto> GetPreviewAsync(int fiscalYear, CancellationToken cancellationToken = default)
     {
         // 1. Calculate Distributable Interest
-        // Total Distributable Interest = Sum(Loan Upfront Interest) + Sum(Late Penalties) + Sum(Net Bank Interest)
+        // Total Distributable Interest = Sum(Loan Upfront Interest) + Sum(Late Penalties across all loan schedules) + Sum(Net Bank Interest)
         var loans = await _context.Loans
             .AsNoTracking()
+            .Include(l => l.Repayments)
+                .ThenInclude(r => r.CutoffPeriod)
             .Where(l => l.OriginationDate.Year == fiscalYear &&
                        (l.Status == LoanStatus.ACTIVE || l.Status == LoanStatus.PAID || l.Status == LoanStatus.APPROVED))
             .ToListAsync(cancellationToken);
 
-        decimal loanInterestIncome = loans.Sum(l => l.InterestEarned);
-
-        decimal latePenaltiesIncome = await _context.LoanRepayments
+        var allCutoffs = await _context.CutoffPeriods
             .AsNoTracking()
-            .Where(r => r.CutoffPeriod.FiscalYear == fiscalYear)
-            .SumAsync(r => (decimal?)r.LatePenaltyPaid, cancellationToken) ?? 0.00m;
+            .OrderBy(c => c.CutoffDate)
+            .ToListAsync(cancellationToken);
 
-        decimal netBankInterestIncome = await _context.BankReconciliations
-            .AsNoTracking()
-            .Where(b => b.CutoffPeriod != null
-                ? b.CutoffPeriod.FiscalYear == fiscalYear
-                : b.StatementDate.Year == fiscalYear)
-            .SumAsync(b => (decimal?)b.NetBankInterest, cancellationToken) ?? 0.00m;
+        decimal loanInterestIncome = Math.Round(loans.Sum(l => l.InterestEarned), 2);
+        decimal latePenaltiesIncome = 0.00m;
 
-        decimal totalDistributableInterest = loanInterestIncome + latePenaltiesIncome + netBankInterestIncome;
+        foreach (var loan in loans)
+        {
+            var repaymentsMap = loan.Repayments.ToDictionary(r => r.CutoffId);
+            var scheduledCutoffs = allCutoffs
+                .Where(c => c.CutoffDate >= loan.OriginationDate.Date)
+                .OrderBy(c => c.CutoffDate)
+                .Take(loan.CutoffsCount)
+                .ToList();
+
+            if (scheduledCutoffs.Count < loan.CutoffsCount)
+            {
+                var scheduledIds = scheduledCutoffs.Select(c => c.Id).ToHashSet();
+                var extraCutoffs = loan.Repayments
+                    .Where(r => !scheduledIds.Contains(r.CutoffId) && r.CutoffPeriod != null)
+                    .Select(r => r.CutoffPeriod)
+                    .ToList();
+                scheduledCutoffs.AddRange(extraCutoffs);
+                scheduledCutoffs = scheduledCutoffs
+                    .OrderBy(c => c.CutoffDate)
+                    .Take(loan.CutoffsCount)
+                    .ToList();
+            }
+
+            var loanPolicy = await _financialPolicyService.GetEffectiveLoanPolicyAsync(loan.CreatedAt, cancellationToken);
+            int gracePeriodDays = loanPolicy.GracePeriodDays;
+            decimal penaltyRate = Math.Round(loanPolicy.LatePenaltyRatePercent / 100m, 4);
+
+            int installment = 1;
+            var scheduledCutoffIdSet = new HashSet<Guid>();
+            foreach (var cutoff in scheduledCutoffs)
+            {
+                scheduledCutoffIdSet.Add(cutoff.Id);
+                repaymentsMap.TryGetValue(cutoff.Id, out var r);
+
+                decimal scheduledAmount = Math.Round(loan.CutoffPaymentAmount, 2);
+                if (installment == loan.CutoffsCount)
+                {
+                    decimal sumPrevious = Math.Round(loan.CutoffPaymentAmount, 2) * (loan.CutoffsCount - 1);
+                    scheduledAmount = Math.Round(loan.PrincipalAmount - sumPrevious, 2);
+                }
+
+                decimal principalPaid = Math.Round(r?.PrincipalPaid ?? 0.00m, 2);
+                decimal latePenaltyPaid = Math.Round(r?.LatePenaltyPaid ?? 0.00m, 2);
+
+                var dueDateWithGrace = cutoff.CutoffDate.Date
+                    .AddDays(gracePeriodDays)
+                    .AddHours(23)
+                    .AddMinutes(59)
+                    .AddSeconds(59);
+
+                bool isPaid = principalPaid >= scheduledAmount;
+                bool isPastGrace = DateTime.UtcNow > dueDateWithGrace;
+                bool isOverdue = !isPaid && isPastGrace;
+
+                decimal unpaidBalance = Math.Max(0m, scheduledAmount - principalPaid);
+                decimal accruedPenalty = isOverdue ? Math.Round(unpaidBalance * penaltyRate, 2) : 0.00m;
+
+                latePenaltiesIncome += latePenaltyPaid + accruedPenalty;
+                installment++;
+            }
+
+            var extraPaidPenalties = loan.Repayments
+                .Where(r => !scheduledCutoffIdSet.Contains(r.CutoffId))
+                .Sum(r => Math.Round(r.LatePenaltyPaid, 2));
+            latePenaltiesIncome += extraPaidPenalties;
+        }
+
+        latePenaltiesIncome = Math.Round(latePenaltiesIncome, 2);
+
+        decimal netBankInterestIncome = Math.Round(
+            await _context.BankReconciliations
+                .AsNoTracking()
+                .Where(b => b.CutoffPeriod != null
+                    ? b.CutoffPeriod.FiscalYear == fiscalYear
+                    : b.StatementDate.Year == fiscalYear)
+                .SumAsync(b => (decimal?)b.NetBankInterest, cancellationToken) ?? 0.00m,
+            2);
+
+        decimal totalDistributableInterest = Math.Round(
+            loanInterestIncome + latePenaltiesIncome + netBankInterestIncome,
+            2);
 
         // Check if an existing distribution has been recorded/seeded
         var existingDist = await _context.SurplusDistributions

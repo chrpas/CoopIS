@@ -176,6 +176,8 @@ export const LoansPage: React.FC = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["loans"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-fund-reconciliation"] });
       if (selectedLoanForSchedule) {
         queryClient.invalidateQueries({
           queryKey: ["loan-schedule", selectedLoanForSchedule.id],

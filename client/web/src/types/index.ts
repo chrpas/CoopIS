@@ -351,6 +351,17 @@ export interface BalanceSheet {
   totalDistributableInterest: number;
   activeLoansCount: number;
   totalLatePenalties?: number;
+  totalLatePenaltiesPaid?: number;
+  totalAccruedLatePenalties?: number;
+  remainingPrincipalReceivable?: number;
+  loanInterestIncome?: number;
+  netBankInterest?: number;
+  dividendPool?: number;
+  patronagePool?: number;
+  dividendWeightPercent?: number;
+  patronageWeightPercent?: number;
+  managementWeightPercent?: number;
+  statementCashInBank?: number;
 }
 
 export interface FundReconciliation {
@@ -366,6 +377,8 @@ export interface FundReconciliation {
   latestStatementDate?: string | null;
   totalLatePenalties?: number;
   totalPrincipalRepayments?: number;
+  totalLatePenaltiesPaid?: number;
+  totalAccruedLatePenalties?: number;
 }
 
 export interface CreateBankReconPayload {

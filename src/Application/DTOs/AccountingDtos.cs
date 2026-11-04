@@ -16,7 +16,18 @@ public record BalanceSheetDto(
     decimal TotalLiabilitiesAndEquity,
     decimal TotalDistributableInterest,
     int ActiveLoansCount,
-    decimal TotalLatePenalties = 0.00m
+    decimal TotalLatePenalties = 0.00m,
+    decimal TotalLatePenaltiesPaid = 0.00m,
+    decimal TotalAccruedLatePenalties = 0.00m,
+    decimal RemainingPrincipalReceivable = 0.00m,
+    decimal LoanInterestIncome = 0.00m,
+    decimal NetBankInterest = 0.00m,
+    decimal DividendPool = 0.00m,
+    decimal PatronagePool = 0.00m,
+    decimal DividendWeightPercent = 65m,
+    decimal PatronageWeightPercent = 30m,
+    decimal ManagementWeightPercent = 5m,
+    decimal StatementCashInBank = 0.00m
 );
 
 public record FundReconciliationDto(
@@ -31,7 +42,9 @@ public record FundReconciliationDto(
     bool IsReconciled,
     DateTime? LatestStatementDate,
     decimal TotalLatePenalties = 0.00m,
-    decimal TotalPrincipalRepayments = 0.00m
+    decimal TotalPrincipalRepayments = 0.00m,
+    decimal TotalLatePenaltiesPaid = 0.00m,
+    decimal TotalAccruedLatePenalties = 0.00m
 );
 
 public record CreateBankReconRequest(

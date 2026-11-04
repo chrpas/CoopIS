@@ -195,6 +195,8 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
         queryKey: ["contributions-cutoff"],
       });
       queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-fund-reconciliation"] });
       if (member?.memberId) {
         queryClient.invalidateQueries({
           queryKey: ["member-detail", member.memberId],

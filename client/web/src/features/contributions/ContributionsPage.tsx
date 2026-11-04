@@ -163,6 +163,8 @@ export const ContributionsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
       queryClient.invalidateQueries({ queryKey: ["contributions-cutoff", selectedCutoffId] });
       queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-fund-reconciliation"] });
       if (data.rolledOverToFiscalYear) {
         setSelectedFiscalYear(data.rolledOverToFiscalYear);
         setSelectedCutoffId("");
@@ -193,6 +195,8 @@ export const ContributionsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
       queryClient.invalidateQueries({ queryKey: ["contributions-cutoff", selectedCutoffId] });
       queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["accounting-fund-reconciliation"] });
     },
     onError: (err: any) => {
       const errorMsg =
