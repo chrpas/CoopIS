@@ -2,11 +2,13 @@ import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import {
+  CutoffPeriod,
   DistributionPreview,
   MemberAllocation,
   MemberStatementOfAccount,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
+import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import {
   PieChart,
   CheckCircle,
@@ -36,6 +38,8 @@ export const DistributionPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [sortField, setSortField] = useState<keyof MemberAllocation>("netSavingsCredited");
   const [sortAsc, setSortAsc] = useState<boolean>(false);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   // Two-step Finalize Confirmation Dialog
   const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState<boolean>(false);
@@ -43,6 +47,21 @@ export const DistributionPage: React.FC = () => {
 
   // Statement of Account (SOA) Modal
   const [selectedSoaMemberId, setSelectedSoaMemberId] = useState<string | null>(null);
+
+  // Fetch Cutoff Periods to derive all available Fiscal Years
+  const { data: cutoffs = [] } = useQuery<CutoffPeriod[]>({
+    queryKey: ["cutoff-periods"],
+    queryFn: async () => {
+      const res = await api.get<CutoffPeriod[]>("/cutoff-periods");
+      return res.data;
+    },
+  });
+
+  const availableFiscalYears = useMemo(() => {
+    const yearsSet = new Set<number>([2026, 2025, 2024]);
+    cutoffs.forEach((c) => yearsSet.add(c.fiscalYear));
+    return Array.from(yearsSet).sort((a, b) => b - a);
+  }, [cutoffs]);
 
   // 1. Fetch Distribution Preview
   const {
@@ -140,6 +159,11 @@ export const DistributionPage: React.FC = () => {
     return list;
   }, [preview?.allocations, searchTerm, sortField, sortAsc]);
 
+  const paginatedAllocations = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredAllocations.slice(start, start + pageSize);
+  }, [filteredAllocations, page, pageSize]);
+
   // Step 3: Export Preview to CSV
   const handleExportCsv = () => {
     if (!preview || !preview.allocations.length) return;
@@ -206,7 +230,9 @@ export const DistributionPage: React.FC = () => {
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Statutory net surplus partitioning: 65% Dividend, 30% Patronage Refund, 5% Management Reserve.
+            Statutory net surplus partitioning: {preview?.dividendWeightPercent ?? 65}% Dividend,{" "}
+            {preview?.patronageWeightPercent ?? 30}% Patronage Refund,{" "}
+            {preview?.managementWeightPercent ?? 5}% Management Reserve.
           </p>
         </div>
 
@@ -220,9 +246,11 @@ export const DistributionPage: React.FC = () => {
               onChange={(e) => setFiscalYear(Number(e.target.value))}
               className="text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
             >
-              <option value={2026}>FY 2026</option>
-              <option value={2025}>FY 2025</option>
-              <option value={2024}>FY 2024</option>
+              {availableFiscalYears.map((yr) => (
+                <option key={yr} value={yr}>
+                  FY {yr}
+                </option>
+              ))}
             </select>
             {preview?.isAlreadyFinalized ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded border border-slate-300">
@@ -258,7 +286,10 @@ export const DistributionPage: React.FC = () => {
               </div>
               <div>
                 <div className="text-xs font-bold">Review Pools</div>
-                <div className="text-[10px] text-slate-500">65 / 30 / 5 Split</div>
+                <div className="text-[10px] text-slate-500">
+                  {preview?.dividendWeightPercent ?? 65} / {preview?.patronageWeightPercent ?? 30} /{" "}
+                  {preview?.managementWeightPercent ?? 5} Split
+                </div>
               </div>
             </button>
 
@@ -371,12 +402,12 @@ export const DistributionPage: React.FC = () => {
 
               {/* 3 Pool Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
-                {/* 65% Dividend Pool */}
+                {/* Dividend Pool */}
                 <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-5 relative overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
                       <TrendingUp className="w-4 h-4 text-emerald-600" />
-                      General Dividend (65%)
+                      General Dividend ({preview?.dividendWeightPercent ?? 65}%)
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
                       Capital Build-Up
@@ -390,12 +421,12 @@ export const DistributionPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* 30% Patronage Pool */}
+                {/* Patronage Pool */}
                 <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-5 relative overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
                       <Receipt className="w-4 h-4 text-blue-600" />
-                      Patronage Refund (30%)
+                      Patronage Refund ({preview?.patronageWeightPercent ?? 30}%)
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-900">
                       Borrowing Volume
@@ -409,12 +440,12 @@ export const DistributionPage: React.FC = () => {
                   </p>
                 </div>
 
-                {/* 5% Management Pool */}
+                {/* Management Pool */}
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 relative overflow-hidden">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                       <Percent className="w-4 h-4 text-slate-500" />
-                      Management / Honoraria (5%)
+                      Management / Honoraria ({preview?.managementWeightPercent ?? 5}%)
                     </span>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
                       Reserve & Admin
@@ -495,7 +526,7 @@ export const DistributionPage: React.FC = () => {
                       className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
                     >
                       <div className="flex items-center justify-end gap-1">
-                        Dividend (65%)
+                        Dividend ({preview?.dividendWeightPercent ?? 65}%)
                         <ArrowUpDown className="w-3 h-3" />
                       </div>
                     </th>
@@ -513,7 +544,7 @@ export const DistributionPage: React.FC = () => {
                       className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
                     >
                       <div className="flex items-center justify-end gap-1">
-                        Patronage (30%)
+                        Patronage ({preview?.patronageWeightPercent ?? 30}%)
                         <ArrowUpDown className="w-3 h-3" />
                       </div>
                     </th>
@@ -530,7 +561,7 @@ export const DistributionPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredAllocations.map((a) => (
+                  {paginatedAllocations.map((a) => (
                     <tr key={a.memberId} className="hover:bg-slate-50/70 transition-colors">
                       <td className="py-3.5 px-4">
                         <div className="font-bold text-slate-900">{a.memberName}</div>
@@ -572,11 +603,14 @@ export const DistributionPage: React.FC = () => {
               </table>
             </div>
 
-            <div className="p-4 border-t border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-500 gap-2">
-              <div>
-                Showing <span className="font-bold text-slate-800">{filteredAllocations.length}</span> member allocations for FY {fiscalYear}.
-              </div>
-              <div className="flex items-center gap-3">
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={filteredAllocations.length}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              itemLabel={`member allocations for FY ${fiscalYear}`}
+              extraContent={
                 <span>
                   Total Surplus Credited:{" "}
                   <span className="font-mono font-bold text-emerald-700">
@@ -586,8 +620,8 @@ export const DistributionPage: React.FC = () => {
                     ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </span>
                 </span>
-              </div>
-            </div>
+              }
+            />
           </div>
         </>
       )}
@@ -621,6 +655,7 @@ export const DistributionPage: React.FC = () => {
               <p>By confirming this closeout:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-700 font-medium">
                 <li>All 24 semi-monthly payroll cutoffs for FY {fiscalYear} will be marked CLOSED.</li>
+                <li>24 new semi-monthly cutoffs (Jan-15 to Dec-31) will be automatically generated for FY {fiscalYear + 1}.</li>
                 <li>Dividend and Patronage balances will be permanently committed to member ledgers.</li>
                 <li>Net Credited Savings will update each member's official Statement of Account.</li>
               </ul>

@@ -9,6 +9,7 @@ import {
   CreateBankReconPayload,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
+import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import {
   Scale,
   Landmark,
@@ -30,6 +31,8 @@ export const AccountingPage: React.FC = () => {
 
   // Active View Tab: Overview & Balance Sheet vs Reconciliations Log
   const [activeTab, setActiveTab] = useState<"balance-sheet" | "reconciliations">("balance-sheet");
+  const [reconPage, setReconPage] = useState<number>(1);
+  const [reconPageSize, setReconPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   // Reconcile Entry Modal / Drawer State
   const [isReconModalOpen, setIsReconModalOpen] = useState(false);
@@ -653,7 +656,9 @@ export const AccountingPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {reconciliations.map((r) => {
+                  {reconciliations
+                    .slice((reconPage - 1) * reconPageSize, reconPage * reconPageSize)
+                    .map((r) => {
                     const isBalanced = Math.abs(Number(r.reconciledVariance)) < 0.01;
                     return (
                       <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
@@ -710,6 +715,16 @@ export const AccountingPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          )}
+          {!isLoadingRecons && reconciliations.length > 0 && (
+            <TablePagination
+              page={reconPage}
+              pageSize={reconPageSize}
+              totalItems={reconciliations.length}
+              onPageChange={setReconPage}
+              onPageSizeChange={setReconPageSize}
+              itemLabel="reconciliation statements"
+            />
           )}
         </div>
       )}

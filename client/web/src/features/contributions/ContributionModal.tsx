@@ -1,7 +1,14 @@
-import React, { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState, useEffect, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
-import { CutoffMemberContribution, CutoffPeriod, PaymentChannel } from "../../types";
+import { memberService } from "../../services/memberService";
+import {
+  CutoffMemberContribution,
+  CutoffPeriod,
+  PaymentChannel,
+  MemberDetail,
+  FinancialPolicyResponse,
+} from "../../types";
 import { useToast } from "../../components/ui/Toast";
 import {
   X,
@@ -12,7 +19,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Lock,
+  Calendar,
+  Clock,
 } from "lucide-react";
 
 interface ContributionModalProps {
@@ -33,28 +41,131 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
+  const [selectedCutoffId, setSelectedCutoffId] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [paymentChannel, setPaymentChannel] = useState<PaymentChannel>("CASH");
   const [validationError, setValidationError] = useState<string>("");
 
-  const isLocked = Boolean(cutoff?.isClosed);
+  // Fetch all cutoff periods
+  const { data: cutoffs = [], isLoading: isLoadingCutoffs } = useQuery<CutoffPeriod[]>({
+    queryKey: ["cutoff-periods"],
+    queryFn: async () => {
+      const res = await api.get<CutoffPeriod[]>("/cutoff-periods");
+      return res.data;
+    },
+    enabled: isOpen,
+  });
 
-  // Sync state whenever member opens in modal
+  // Fetch selected member's contribution history so we only list cutoff periods where they haven't contributed
+  const { data: memberDetail, isLoading: isLoadingMember } = useQuery<MemberDetail>({
+    queryKey: ["member-detail", member?.memberId],
+    queryFn: () => {
+      if (!member?.memberId) throw new Error("No member ID");
+      return memberService.getMemberById(member.memberId);
+    },
+    enabled: isOpen && Boolean(member?.memberId),
+  });
+
+  const { data: financialPolicy } = useQuery<FinancialPolicyResponse>({
+    queryKey: ["financial-policy"],
+    queryFn: async () => {
+      const res = await api.get<FinancialPolicyResponse>("/settings/financial-policy");
+      return res.data;
+    },
+    enabled: isOpen,
+  });
+
+  const contributionGraceDays =
+    financialPolicy?.activeLoanPolicy.contributionGracePeriodDays ?? 5;
+  const latePenaltyRatePercent =
+    financialPolicy?.activeLoanPolicy.latePenaltyRatePercent ?? 5.0;
+
+  // Filter cutoff periods to ONLY those where the selected member was NOT able to contribute yet
+  const uncontributedCutoffs = useMemo(() => {
+    const contributedIds = new Set<string>();
+    const contributedLabels = new Set<string>();
+
+    if (memberDetail?.contributions) {
+      memberDetail.contributions.forEach((c) => {
+        if ((Number(c.amount) || 0) > 0) {
+          if (c.cutoffId) contributedIds.add(c.cutoffId);
+          if (c.cutoffLabel) contributedLabels.add(c.cutoffLabel);
+        }
+      });
+    } else if (member && (Number(member.amount) || 0) > 0) {
+      if (member.cutoffId) contributedIds.add(member.cutoffId);
+      if (member.cutoffLabel) contributedLabels.add(member.cutoffLabel);
+    }
+
+    return [...cutoffs]
+      .filter((c) => !contributedIds.has(c.id) && !contributedLabels.has(c.label))
+      .sort(
+        (a, b) => new Date(a.cutoffDate).getTime() - new Date(b.cutoffDate).getTime()
+      );
+  }, [cutoffs, memberDetail, member]);
+
+  // Default selected cutoff to the current page cutoff (if uncontributed) or the first uncontributed cutoff
   useEffect(() => {
-    if (member) {
-      setAmount(member.amount && member.amount > 0 ? member.amount.toString() : "");
+    if (!isOpen) return;
+    if (uncontributedCutoffs.length > 0) {
+      const currentIsUncontributed =
+        cutoff && uncontributedCutoffs.some((c) => c.id === cutoff.id);
+      if (currentIsUncontributed && cutoff) {
+        setSelectedCutoffId(cutoff.id);
+      } else if (
+        !selectedCutoffId ||
+        !uncontributedCutoffs.some((c) => c.id === selectedCutoffId)
+      ) {
+        setSelectedCutoffId(uncontributedCutoffs[0].id);
+      }
+    } else {
+      setSelectedCutoffId("");
+    }
+  }, [isOpen, cutoff, uncontributedCutoffs]);
+
+  // Sync default amount and channel whenever member opens in modal
+  useEffect(() => {
+    if (member && isOpen) {
+      const usualAmount =
+        memberDetail && memberDetail.totalContributionsCount > 0
+          ? Math.round(
+              memberDetail.totalShareContributions / memberDetail.totalContributionsCount
+            )
+          : member.amount && member.amount > 0
+          ? member.amount
+          : 0;
+      setAmount(usualAmount > 0 ? usualAmount.toString() : "");
       setPaymentChannel(member.paymentChannel || "CASH");
       setValidationError("");
     }
-  }, [member, isOpen]);
+  }, [member, memberDetail, isOpen]);
+
+  const targetCutoff = useMemo(
+    () =>
+      uncontributedCutoffs.find((c) => c.id === selectedCutoffId) ||
+      cutoffs.find((c) => c.id === selectedCutoffId) ||
+      cutoff,
+    [uncontributedCutoffs, cutoffs, selectedCutoffId, cutoff]
+  );
+
+  const isTargetDelayedPastGrace = useMemo(() => {
+    if (!targetCutoff) return false;
+    const cDate = new Date(targetCutoff.cutoffDate);
+    const graceDeadline = new Date(cDate);
+    graceDeadline.setDate(graceDeadline.getDate() + contributionGraceDays);
+    graceDeadline.setHours(23, 59, 59, 999);
+    return new Date() > graceDeadline;
+  }, [targetCutoff, contributionGraceDays]);
+
+  const isLocked = uncontributedCutoffs.length === 0 && !isLoadingMember && !isLoadingCutoffs;
 
   const saveMutation = useMutation({
     mutationFn: async (payload: {
       amount: number;
+      cutoffId: string;
       paymentChannel: PaymentChannel;
     }) => {
-      if (!member || !cutoff) throw new Error("Missing member or cutoff");
-      const targetId = member.contributionId || member.memberId;
+      if (!member) throw new Error("Missing member");
       const res = await api.patch<{
         contributionId: string;
         id: string;
@@ -63,28 +174,32 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
         amount: number;
         paymentChannel: PaymentChannel;
         recordedAt: string;
-      }>(`/contributions/${targetId}`, {
+      }>(`/contributions/${member.memberId}`, {
         amount: payload.amount,
         memberId: member.memberId,
-        cutoffId: cutoff.id,
+        cutoffId: payload.cutoffId,
         paymentChannel: payload.paymentChannel,
       });
       return res.data;
     },
     onSuccess: (data) => {
+      const assignedLabel = targetCutoff?.label || cutoff?.label || "selected cutoff";
       showToast(
         "success",
         "Contribution Recorded",
         `Successfully recorded ₱${data.amount.toLocaleString("en-US", {
           minimumFractionDigits: 2,
-        })} for ${member?.memberName}.`
+        })} for ${member?.memberName} (${assignedLabel}).`
       );
-      if (cutoff?.id) {
+      queryClient.invalidateQueries({
+        queryKey: ["contributions-cutoff"],
+      });
+      queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
+      if (member?.memberId) {
         queryClient.invalidateQueries({
-          queryKey: ["contributions-cutoff", cutoff.id],
+          queryKey: ["member-detail", member.memberId],
         });
       }
-      queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
       onSuccess?.();
       onClose();
     },
@@ -105,21 +220,24 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
     e.preventDefault();
     setValidationError("");
 
-    if (isLocked) {
-      setValidationError("Cannot modify contributions for a locked cutoff period.");
+    if (!selectedCutoffId) {
+      setValidationError(
+        "Please select an uncontributed cutoff period to assign this contribution."
+      );
       return;
     }
 
     const clean = amount.trim();
     const num = clean === "" ? 0 : parseFloat(clean);
 
-    if (isNaN(num) || num < 0) {
-      setValidationError("Please enter a valid non-negative contribution amount.");
+    if (isNaN(num) || num <= 0) {
+      setValidationError("Please enter a contribution amount greater than ₱0.00.");
       return;
     }
 
     saveMutation.mutate({
       amount: num,
+      cutoffId: selectedCutoffId,
       paymentChannel,
     });
   };
@@ -146,7 +264,10 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
                 Record Contribution
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                Cutoff: <span className="font-semibold text-emerald-400">{cutoff.label}</span>
+                Assign to Cutoff:{" "}
+                <span className="font-semibold text-emerald-400">
+                  {targetCutoff?.label || "Select Cutoff"}
+                </span>
               </p>
             </div>
           </div>
@@ -198,21 +319,87 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {isLocked && (
-            <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs font-medium">
-              <Lock className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <span>
-                This cutoff period is <strong>locked and finalized</strong>. New contributions or adjustments are currently disabled.
-              </span>
-            </div>
-          )}
-
           {validationError && (
             <div className="flex items-center gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>{validationError}</span>
             </div>
           )}
+
+          {/* Uncontributed Cutoff Period Dropdown */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor="target-cutoff-select"
+                className="block text-xs font-bold text-slate-700 uppercase tracking-wider"
+              >
+                Assign to Cutoff Period <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[11px] font-semibold text-emerald-700">
+                {uncontributedCutoffs.length} uncontributed{" "}
+                {uncontributedCutoffs.length === 1 ? "cutoff" : "cutoffs"}
+              </span>
+            </div>
+
+            {isLoadingMember || isLoadingCutoffs ? (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                Loading member's uncontributed cutoff periods...
+              </div>
+            ) : uncontributedCutoffs.length === 0 ? (
+              <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  This member has already contributed for all scheduled cutoff periods.
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="relative">
+                  <Calendar className="w-4 h-4 text-emerald-600 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <select
+                    id="target-cutoff-select"
+                    value={selectedCutoffId}
+                    onChange={(e) => {
+                      setSelectedCutoffId(e.target.value);
+                      setValidationError("");
+                    }}
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 bg-white text-slate-900 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 cursor-pointer"
+                  >
+                    {uncontributedCutoffs.map((c) => {
+                      const dateStr = new Date(c.cutoffDate).toLocaleDateString(
+                        "en-US",
+                        {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        }
+                      );
+                      return (
+                        <option key={c.id} value={c.id}>
+                          {c.label} — {dateStr} ({c.fiscalYear}){" "}
+                          {c.isClosed ? "• [Closed Cutoff]" : "• [Open Cutoff]"}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  Lists only cutoff periods where {member.memberName} was not able to contribute yet (including closed cutoffs).
+                </p>
+
+                {isTargetDelayedPastGrace && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>
+                      Past the <strong>{contributionGraceDays}-day cutoff grace period</strong> — a{" "}
+                      <strong>{latePenaltyRatePercent}% late penalty charge</strong> applies to this delayed contribution.
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           {/* Amount Field */}
           <div>

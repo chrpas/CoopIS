@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
-import { Member } from "../../types";
+import { Member, FinancialPolicyResponse } from "../../types";
 import {
   calculateLoanTerms,
   projectAmortizationSchedule,
@@ -49,15 +49,27 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
   );
   const [notes, setNotes] = useState<string>("");
 
+  const { data: financialPolicy } = useQuery<FinancialPolicyResponse>({
+    queryKey: ["financial-policy"],
+    queryFn: async () => {
+      const res = await api.get<FinancialPolicyResponse>("/settings/financial-policy");
+      return res.data;
+    },
+  });
+
+  const activeInterestPercent =
+    financialPolicy?.activeLoanPolicy.standardLoanInterestRatePercent ?? 5.0;
+  const activeInterestRate = activeInterestPercent / 100;
+
   // Live calculation of loan terms
   const calculation = useMemo(() => {
-    return calculateLoanTerms(principalAmount);
-  }, [principalAmount]);
+    return calculateLoanTerms(principalAmount, activeInterestRate);
+  }, [principalAmount, activeInterestRate]);
 
   // Live projected amortization schedule
   const schedule = useMemo<ProjectedAmortizationItem[]>(() => {
-    return projectAmortizationSchedule(principalAmount, new Date());
-  }, [principalAmount]);
+    return projectAmortizationSchedule(principalAmount, new Date(), activeInterestRate);
+  }, [principalAmount, activeInterestRate]);
 
   // Selected member object
   const selectedMember = useMemo(() => {
@@ -113,7 +125,7 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold">Loan Origination Wizard</h3>
                 <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                  5% Upfront Policy
+                  {activeInterestPercent.toFixed(2)}% Upfront Policy
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
@@ -269,7 +281,7 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
                 <ul className="text-xs text-slate-600 space-y-1 list-disc list-inside">
                   <li>Member must hold an active account with verified share capital standing.</li>
                   <li>Lending ceiling capped at ₱80,000 PHP per cooperative bylaws.</li>
-                  <li>Flat 5.00% interest deducted upfront from gross proceeds.</li>
+                  <li>Flat {activeInterestPercent.toFixed(2)}% interest deducted upfront from gross proceeds.</li>
                 </ul>
               </div>
             </div>
@@ -368,7 +380,9 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
                   </div>
                   <div className="p-2.5 bg-white/5 rounded-lg border border-white/10">
                     <div className="text-[11px] text-slate-400 uppercase font-medium">Upfront Interest</div>
-                    <div className="text-base font-bold text-amber-400 mt-0.5">5.00% (Flat)</div>
+                    <div className="text-base font-bold text-amber-400 mt-0.5">
+                      {activeInterestPercent.toFixed(2)}% (Flat)
+                    </div>
                   </div>
                   <div className="p-2.5 bg-white/5 rounded-lg border border-white/10">
                     <div className="text-[11px] text-slate-400 uppercase font-medium">Payment / Cutoff</div>
@@ -395,7 +409,7 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
                 <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl">
                   <div className="text-[11px] text-amber-800 font-semibold uppercase flex items-center gap-1.5">
                     <Percent className="w-3.5 h-3.5 text-amber-600" />
-                    Upfront Interest (5%)
+                    Upfront Interest ({activeInterestPercent.toFixed(2)}%)
                   </div>
                   <div className="text-lg font-bold text-amber-900 mt-1">
                     ₱{calculation.interestEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}

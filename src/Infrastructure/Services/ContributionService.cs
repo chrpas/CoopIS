@@ -111,17 +111,25 @@ public class ContributionService : IContributionService
             .Select(g => g.Last())
             .ToList();
 
-        // Verify all referenced cutoffs exist
+        // Verify all referenced cutoffs exist and are open
         var cutoffIds = consolidatedItems.Select(i => i.CutoffId).Distinct().ToList();
-        var existingCutoffs = await _context.CutoffPeriods
+        var existingCutoffEntities = await _context.CutoffPeriods
             .Where(c => cutoffIds.Contains(c.Id))
-            .Select(c => c.Id)
+            .Select(c => new { c.Id, c.Label, c.IsClosed })
             .ToListAsync(cancellationToken);
+
+        var existingCutoffs = existingCutoffEntities.Select(c => c.Id).ToList();
 
         var missingCutoff = cutoffIds.Except(existingCutoffs).FirstOrDefault();
         if (missingCutoff != Guid.Empty)
         {
             throw new NotFoundException($"Cutoff period with ID '{missingCutoff}' was not found.");
+        }
+
+        var closedCutoff = existingCutoffEntities.FirstOrDefault(c => c.IsClosed);
+        if (closedCutoff != null)
+        {
+            throw new ValidationException($"Cutoff period '{closedCutoff.Label}' is locked/finalized and cannot be modified.");
         }
 
         // Verify all referenced members exist

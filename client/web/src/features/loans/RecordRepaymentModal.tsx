@@ -105,12 +105,17 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
       return res.data;
     },
     onSuccess: (data) => {
+      const isFullyPaid = data.loanStatus === "PAID" || Number(data.remainingLoanBalance) === 0;
       showToast(
         "success",
-        "Loan Repayment Logged",
-        `Received ₱${data.totalPaidThisEntry.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-        })} (Principal: ₱${data.principalPaid.toLocaleString()} | Late Penalty: ₱${data.latePenaltyPaid.toLocaleString()}) for ${data.cutoffLabel}.`
+        isFullyPaid ? "Loan Paid in Full" : "Loan Repayment Logged",
+        isFullyPaid
+          ? `Received ₱${data.totalPaidThisEntry.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            })} for ${data.cutoffLabel}. All scheduled loan payments are now fully paid and ${loan?.loanReference ?? "this loan"} has been automatically marked as PAID.`
+          : `Received ₱${data.totalPaidThisEntry.toLocaleString("en-US", {
+              minimumFractionDigits: 2,
+            })} (Principal: ₱${data.principalPaid.toLocaleString()} | Late Penalty: ₱${data.latePenaltyPaid.toLocaleString()}) for ${data.cutoffLabel}.`
       );
 
       // Invalidate relevant queries

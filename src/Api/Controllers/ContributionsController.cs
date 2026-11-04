@@ -66,30 +66,33 @@ public class ContributionsController : ControllerBase
 
         Contribution? contribution = null;
 
-        if (Guid.TryParse(id, out var parsedGuid))
-        {
-            contribution = await _context.Contributions
-                .FirstOrDefaultAsync(c => c.Id == parsedGuid, cancellationToken);
-
-            if (contribution == null && dto.CutoffId.HasValue)
-            {
-                contribution = await _context.Contributions
-                    .FirstOrDefaultAsync(c => c.MemberId == parsedGuid && c.CutoffId == dto.CutoffId.Value, cancellationToken);
-            }
-        }
-
-        if (contribution == null && dto.MemberId.HasValue && dto.CutoffId.HasValue)
+        if (dto.MemberId.HasValue && dto.CutoffId.HasValue)
         {
             contribution = await _context.Contributions
                 .FirstOrDefaultAsync(c => c.MemberId == dto.MemberId.Value && c.CutoffId == dto.CutoffId.Value, cancellationToken);
         }
 
+        if (contribution == null && Guid.TryParse(id, out var parsedGuid))
+        {
+            if (dto.CutoffId.HasValue)
+            {
+                contribution = await _context.Contributions
+                    .FirstOrDefaultAsync(c => c.MemberId == parsedGuid && c.CutoffId == dto.CutoffId.Value, cancellationToken);
+            }
+
+            if (contribution == null && !dto.CutoffId.HasValue)
+            {
+                contribution = await _context.Contributions
+                    .FirstOrDefaultAsync(c => c.Id == parsedGuid, cancellationToken);
+            }
+        }
+
         if (contribution != null)
         {
             var cutoff = await _context.CutoffPeriods.FirstOrDefaultAsync(c => c.Id == contribution.CutoffId, cancellationToken);
-            if (cutoff != null && cutoff.IsClosed)
+            if (cutoff != null && cutoff.IsClosed && contribution.Amount > 0m)
             {
-                return BadRequest(new { detail = "Cannot modify contributions for a locked/finalized cutoff period." });
+                return BadRequest(new { detail = "This member has already contributed for this locked/finalized cutoff period." });
             }
 
             contribution.Amount = dto.Amount;
@@ -97,6 +100,7 @@ public class ContributionsController : ControllerBase
             {
                 contribution.PaymentChannel = dto.PaymentChannel.Value;
             }
+            contribution.CreatedAt = DateTime.UtcNow;
         }
         else
         {
@@ -109,9 +113,9 @@ public class ContributionsController : ControllerBase
             }
 
             var cutoff = await _context.CutoffPeriods.FirstOrDefaultAsync(c => c.Id == cutoffId, cancellationToken);
-            if (cutoff != null && cutoff.IsClosed)
+            if (cutoff == null)
             {
-                return BadRequest(new { detail = "Cannot add contributions to a locked/finalized cutoff period." });
+                return NotFound(new { detail = "Selected cutoff period was not found." });
             }
 
             contribution = new Contribution

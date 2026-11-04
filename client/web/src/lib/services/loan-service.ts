@@ -80,18 +80,21 @@ export function getLoanTier(principal: number): LoanTier {
   return tier;
 }
 
-export function calculateLoanTerms(principal: number): LoanCalculationResult {
+export function calculateLoanTerms(
+  principal: number,
+  interestRate: number = FIXED_INTEREST_RATE
+): LoanCalculationResult {
   const safeAmount = Math.max(MIN_LOAN_AMOUNT, Math.min(principal, MAX_LOAN_AMOUNT));
   const tier = getLoanTier(safeAmount);
 
   const roundedPrincipal = Math.round(safeAmount * 100) / 100;
-  const interestEarned = Math.round(roundedPrincipal * FIXED_INTEREST_RATE * 100) / 100;
+  const interestEarned = Math.round(roundedPrincipal * interestRate * 100) / 100;
   const releasedAmount = Math.round((roundedPrincipal - interestEarned) * 100) / 100;
   const cutoffPaymentAmount = Math.round((roundedPrincipal / tier.cutoffsCount) * 100) / 100;
 
   return {
     principalAmount: roundedPrincipal,
-    interestRate: FIXED_INTEREST_RATE,
+    interestRate,
     termMonths: tier.termMonths,
     cutoffsCount: tier.cutoffsCount,
     interestEarned,
@@ -103,9 +106,10 @@ export function calculateLoanTerms(principal: number): LoanCalculationResult {
 
 export function projectAmortizationSchedule(
   principal: number,
-  originationDate: Date = new Date()
+  originationDate: Date = new Date(),
+  interestRate: number = FIXED_INTEREST_RATE
 ): ProjectedAmortizationItem[] {
-  const calculation = calculateLoanTerms(principal);
+  const calculation = calculateLoanTerms(principal, interestRate);
   const count = calculation.cutoffsCount;
 
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

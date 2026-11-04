@@ -11,10 +11,10 @@ echo.
 echo [1/4] Checking Docker daemon status...
 docker info >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Docker daemon is not running or Docker Desktop is not installed.
-    echo Please start Docker Desktop and run this script again.
-    pause
-    exit /b 1
+    echo [NOTICE] Docker daemon is not running or not installed.
+    echo Falling back to local development launcher ^(dev.ps1: .NET API + Vite Frontend^)...
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0dev.ps1"
+    exit /b %ERRORLEVEL%
 )
 echo [OK] Docker daemon is running.
 echo.

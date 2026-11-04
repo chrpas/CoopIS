@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useReactTable,
   getCoreRowModel,
   getFilteredRowModel,
   getSortedRowModel,
+  getPaginationRowModel,
   ColumnDef,
   flexRender,
   SortingState,
+  PaginationState,
 } from "@tanstack/react-table";
 import { api } from "../../services/api";
 import {
@@ -16,6 +19,7 @@ import {
   ContributionSummary,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
+import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import { MemberDetailsDrawer } from "../members/MemberDetailsDrawer";
 import { ContributionModal } from "./ContributionModal";
 import {
@@ -41,10 +45,17 @@ export const ContributionsPage: React.FC = () => {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
-  // Selected Cutoff State
+  // Selected Fiscal Year & Cutoff State
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number | null>(null);
   const [selectedCutoffId, setSelectedCutoffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: DEFAULT_PAGE_SIZE,
+  });
+  const [summaryPage, setSummaryPage] = useState<number>(1);
+  const [summaryPageSize, setSummaryPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [activeTab, setActiveTab] = useState<"entry" | "summary">("entry");
 
   // Grid local state
@@ -61,13 +72,40 @@ export const ContributionsPage: React.FC = () => {
     },
   });
 
-  // Auto-select initial cutoff (first open or first available)
+  // Distinct available fiscal years (sorted descending)
+  const availableFiscalYears = useMemo(() => {
+    const years = Array.from(new Set(cutoffs.map((c) => c.fiscalYear)));
+    return years.sort((a, b) => b - a);
+  }, [cutoffs]);
+
+  // Cutoffs filtered by the active fiscal year
+  const cutoffsForYear = useMemo(() => {
+    if (!selectedFiscalYear) return cutoffs;
+    return cutoffs.filter((c) => c.fiscalYear === selectedFiscalYear);
+  }, [cutoffs, selectedFiscalYear]);
+
+  const allCutoffsClosedInSelectedYear = useMemo(() => {
+    return cutoffsForYear.length > 0 && cutoffsForYear.every((c) => c.isClosed);
+  }, [cutoffsForYear]);
+
+  // Auto-select initial fiscal year and cutoff (first open or first available)
   useEffect(() => {
     if (cutoffs.length > 0 && !selectedCutoffId) {
-      const firstOpen = cutoffs.find((c) => !c.isClosed) || cutoffs[0];
+      const firstOpen = cutoffs.find((c) => !c.isClosed) || cutoffs[cutoffs.length - 1];
+      setSelectedFiscalYear(firstOpen.fiscalYear);
       setSelectedCutoffId(firstOpen.id);
     }
   }, [cutoffs, selectedCutoffId]);
+
+  // Handler when switching Fiscal Year
+  const handleFiscalYearChange = (year: number) => {
+    setSelectedFiscalYear(year);
+    const yearCutoffs = cutoffs.filter((c) => c.fiscalYear === year);
+    if (yearCutoffs.length > 0) {
+      const firstOpen = yearCutoffs.find((c) => !c.isClosed) || yearCutoffs[0];
+      setSelectedCutoffId(firstOpen.id);
+    }
+  };
 
   // Current selected cutoff object
   const selectedCutoff = useMemo(
@@ -125,6 +163,10 @@ export const ContributionsPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
       queryClient.invalidateQueries({ queryKey: ["contributions-cutoff", selectedCutoffId] });
       queryClient.invalidateQueries({ queryKey: ["contributions-summary"] });
+      if (data.rolledOverToFiscalYear) {
+        setSelectedFiscalYear(data.rolledOverToFiscalYear);
+        setSelectedCutoffId("");
+      }
     },
     onError: (err: any) => {
       const errorMsg =
@@ -268,8 +310,8 @@ export const ContributionsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedMemberForModal(row.original)}
-                className="px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold border shadow-2xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 border-emerald-200 hover:border-emerald-300"
-                title="Record contribution for this cutoff"
+                className="px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold border shadow-2xs text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 border-emerald-200 hover:border-emerald-300 cursor-pointer"
+                title="Record contribution and assign to an uncontributed cutoff period"
               >
                 <Plus className="w-3.5 h-3.5 text-emerald-600" />
                 Record
@@ -288,7 +330,7 @@ export const ContributionsPage: React.FC = () => {
         },
       },
     ],
-    []
+    [selectedCutoff?.isClosed]
   );
 
   // Filter grid by search term
@@ -309,12 +351,21 @@ export const ContributionsPage: React.FC = () => {
     columns,
     state: {
       sorting,
+      pagination,
     },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   });
+
+  const allMemberSummaries = summaryData?.memberContributions || [];
+  const paginatedMemberSummaries = useMemo(() => {
+    const start = (summaryPage - 1) * summaryPageSize;
+    return allMemberSummaries.slice(start, start + summaryPageSize);
+  }, [allMemberSummaries, summaryPage, summaryPageSize]);
 
   return (
     <div className="space-y-6">
@@ -325,17 +376,38 @@ export const ContributionsPage: React.FC = () => {
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
               Capital Build-Up & Share Contributions
             </h2>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Admin Master Entry
-            </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
             Semi-monthly member payroll deductions, share capital postings, and ledger reconciliation.
           </p>
         </div>
 
-        {/* Cutoff Selector & Actions */}
-        <div className="flex flex-wrap items-center gap-3">
+        {/* Fiscal Year & Cutoff Selector & Actions */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Fiscal Year Selector */}
+          <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs">
+            <label
+              htmlFor="fy-select"
+              className="text-xs font-semibold text-slate-500 uppercase tracking-wider"
+            >
+              FY:
+            </label>
+            <select
+              id="fy-select"
+              value={selectedFiscalYear ?? ""}
+              onChange={(e) => handleFiscalYearChange(Number(e.target.value))}
+              disabled={isLoadingCutoffs}
+              className="text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+            >
+              {availableFiscalYears.map((yr) => (
+                <option key={yr} value={yr}>
+                  {yr}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Cutoff Selector */}
           <div className="flex items-center gap-2 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs">
             <Calendar className="w-4 h-4 text-emerald-600" />
             <label htmlFor="cutoff-select" className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
@@ -351,7 +423,7 @@ export const ContributionsPage: React.FC = () => {
               {isLoadingCutoffs ? (
                 <option>Loading cutoffs...</option>
               ) : (
-                cutoffs.map((c) => (
+                cutoffsForYear.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.label} ({c.fiscalYear}) {c.isClosed ? "— [Closed]" : "— [Open]"}
                   </option>
@@ -368,32 +440,45 @@ export const ContributionsPage: React.FC = () => {
               </span>
             )}
           </div>
-
-          {/* Tab switcher: Entry Grid vs Cumulative Summary */}
-          <div className="bg-slate-200/80 p-1 rounded-xl flex items-center gap-1">
-            <button
-              onClick={() => setActiveTab("entry")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "entry"
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Data Entry Grid
-            </button>
-            <button
-              onClick={() => setActiveTab("summary")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeTab === "summary"
-                  ? "bg-white text-slate-900 shadow-xs"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Cumulative Ledgers
-            </button>
-          </div>
         </div>
       </div>
+
+      {/* Fiscal Year Rollover Banner when all cutoffs in the selected year are closed */}
+      {allCutoffsClosedInSelectedYear && selectedFiscalYear && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wider">
+                All FY {selectedFiscalYear} Cutoff Periods Are Closed
+              </h4>
+              <p className="text-xs text-amber-800 mt-0.5">
+                {availableFiscalYears.includes(selectedFiscalYear + 1)
+                  ? `Fiscal Year ${selectedFiscalYear + 1} is available. Switch to FY ${selectedFiscalYear + 1} to continue recording contributions.`
+                  : `To open a new fiscal year schedule, generate the FY ${selectedFiscalYear + 1} cutoff periods in Site Settings.`}
+              </p>
+            </div>
+          </div>
+          {availableFiscalYears.includes(selectedFiscalYear + 1) ? (
+            <button
+              type="button"
+              onClick={() => handleFiscalYearChange(selectedFiscalYear + 1)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-900 hover:bg-amber-800 text-white transition-colors self-start sm:self-auto"
+            >
+              Switch to FY {selectedFiscalYear + 1}
+            </button>
+          ) : (
+            <Link
+              to="/settings/users?tab=general"
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-700 hover:bg-emerald-800 text-white transition-colors self-start sm:self-auto"
+            >
+              Go to Site Settings
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* 2. Summary Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -487,6 +572,32 @@ export const ContributionsPage: React.FC = () => {
               style={{ width: `${completionPercent}%` }}
             />
           </div>
+        </div>
+      </div>
+
+      {/* Tab switcher: Entry Grid vs Cumulative Summary */}
+      <div className="flex items-center justify-between">
+        <div className="bg-slate-200/80 p-1 rounded-xl inline-flex items-center gap-1">
+          <button
+            onClick={() => setActiveTab("entry")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              activeTab === "entry"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            Data Entry Grid
+          </button>
+          <button
+            onClick={() => setActiveTab("summary")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              activeTab === "summary"
+                ? "bg-white text-slate-900 shadow-xs"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            Cumulative Ledgers
+          </button>
         </div>
       </div>
 
@@ -611,20 +722,26 @@ export const ContributionsPage: React.FC = () => {
           </div>
 
           {/* Table Footer */}
-          <div className="p-4 border-t border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs text-slate-500 gap-2">
-            <div>
-              Showing <span className="font-bold text-slate-800">{filteredData.length}</span> members in cutoff{" "}
-              <span className="font-bold text-slate-800">{selectedCutoff?.label}</span>.
-            </div>
-            <div className="flex items-center gap-4">
+          <TablePagination
+            page={pagination.pageIndex + 1}
+            pageSize={pagination.pageSize}
+            totalItems={filteredData.length}
+            onPageChange={(newPage) =>
+              setPagination((prev) => ({ ...prev, pageIndex: newPage - 1 }))
+            }
+            onPageSizeChange={(newSize) =>
+              setPagination({ pageIndex: 0, pageSize: newSize })
+            }
+            itemLabel={`members in cutoff ${selectedCutoff?.label || ""}`}
+            extraContent={
               <span>
                 Total Batch Amount:{" "}
                 <span className="font-mono font-bold text-emerald-700 text-sm">
                   ₱{totalThisCutoff.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                 </span>
               </span>
-            </div>
-          </div>
+            }
+          />
         </div>
       ) : (
         /* 4. Cumulative Ledgers & Summary View */
@@ -647,59 +764,69 @@ export const ContributionsPage: React.FC = () => {
               <p className="text-sm text-slate-500 font-medium">Loading cumulative ledgers...</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-4">Member ID</th>
-                    <th className="py-3 px-4">Member Name</th>
-                    <th className="py-3 px-4 text-center">Cutoffs Remitted</th>
-                    <th className="py-3 px-4 text-right">Total Cumulative Capital (₱)</th>
-                    <th className="py-3 px-4 text-right">Last Contribution</th>
-                    <th className="py-3 px-4 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(summaryData?.memberContributions || []).map((m) => (
-                    <tr key={m.memberId} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
-                          {m.memberCode}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900">{m.memberName}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                          {m.contributionsCount} {m.contributionsCount === 1 ? "cutoff" : "cutoffs"}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-extrabold text-emerald-700 text-sm">
-                        ₱{m.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3.5 px-4 text-right text-xs text-slate-500">
-                        {m.lastContributionDate
-                          ? new Date(m.lastContributionDate).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })
-                          : "None"}
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedMemberIdForDrawer(m.memberId)}
-                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors inline-flex items-center"
-                          title="View member statement and history"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Member ID</th>
+                      <th className="py-3 px-4">Member Name</th>
+                      <th className="py-3 px-4 text-center">Cutoffs Remitted</th>
+                      <th className="py-3 px-4 text-right">Total Cumulative Capital (₱)</th>
+                      <th className="py-3 px-4 text-right">Last Contribution</th>
+                      <th className="py-3 px-4 text-right">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedMemberSummaries.map((m) => (
+                      <tr key={m.memberId} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <span className="font-mono text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                            {m.memberCode}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-bold text-slate-900">{m.memberName}</td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                            {m.contributionsCount} {m.contributionsCount === 1 ? "cutoff" : "cutoffs"}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-extrabold text-emerald-700 text-sm">
+                          ₱{m.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3.5 px-4 text-right text-xs text-slate-500">
+                          {m.lastContributionDate
+                            ? new Date(m.lastContributionDate).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "None"}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedMemberIdForDrawer(m.memberId)}
+                            className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors inline-flex items-center"
+                            title="View member statement and history"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <TablePagination
+                page={summaryPage}
+                pageSize={summaryPageSize}
+                totalItems={allMemberSummaries.length}
+                onPageChange={setSummaryPage}
+                onPageSizeChange={setSummaryPageSize}
+                itemLabel="member ledgers"
+              />
+            </>
           )}
         </div>
       )}

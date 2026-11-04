@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Users,
   ShieldCheck,
@@ -11,6 +13,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
+  Unlock,
   Trash2,
   RefreshCw,
   Landmark,
@@ -18,10 +21,20 @@ import {
   Layers,
   Shield,
   Globe,
+  Calendar,
+  Plus,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { UserAccount, UserRole, CreateUserPayload } from "../../types";
+import {
+  UserAccount,
+  UserRole,
+  CreateUserPayload,
+  CutoffPeriod,
+  FinancialPolicyResponse,
+} from "../../types";
+import { api } from "../../services/api";
 import { userService } from "../../services/userService";
+import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import { CreateUserModal } from "./CreateUserModal";
 import { RemoteAccessTab } from "./RemoteAccessTab";
 
@@ -29,7 +42,12 @@ type SettingsTab = "users" | "general" | "security" | "remote-access";
 
 export const SettingsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("users");
+  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const initialTab = (searchParams.get("tab") as SettingsTab) || "users";
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    ["users", "general", "security", "remote-access"].includes(initialTab) ? initialTab : "users"
+  );
 
   // User management state
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -44,6 +62,209 @@ export const SettingsPage: React.FC = () => {
   const [deletingUser, setDeletingUser] = useState<UserAccount | null>(null);
   const [roleChangeUser, setRoleChangeUser] = useState<UserAccount | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Fiscal Year & Cutoff Schedule Generator state
+  const [targetFiscalYearInput, setTargetFiscalYearInput] = useState<string>("");
+  const [selectedScheduleYear, setSelectedScheduleYear] = useState<number | null>(null);
+
+  const { data: cutoffs = [], isLoading: isLoadingCutoffs } = useQuery<CutoffPeriod[]>({
+    queryKey: ["cutoff-periods"],
+    queryFn: async () => {
+      const res = await api.get<CutoffPeriod[]>("/cutoff-periods");
+      return res.data;
+    },
+  });
+
+  // Group cutoffs by fiscal year (sorted descending)
+  const fiscalYearSummaries = useMemo(() => {
+    const map = new Map<
+      number,
+      { fiscalYear: number; total: number; openCount: number; closedCount: number; cutoffs: CutoffPeriod[] }
+    >();
+
+    for (const c of cutoffs) {
+      const existing = map.get(c.fiscalYear) || {
+        fiscalYear: c.fiscalYear,
+        total: 0,
+        openCount: 0,
+        closedCount: 0,
+        cutoffs: [],
+      };
+      existing.total += 1;
+      if (c.isClosed) existing.closedCount += 1;
+      else existing.openCount += 1;
+      existing.cutoffs.push(c);
+      map.set(c.fiscalYear, existing);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.fiscalYear - a.fiscalYear);
+  }, [cutoffs]);
+
+  const maxFiscalYear = useMemo(() => {
+    return fiscalYearSummaries.length > 0
+      ? fiscalYearSummaries[0].fiscalYear
+      : new Date().getFullYear();
+  }, [fiscalYearSummaries]);
+
+  useEffect(() => {
+    if (fiscalYearSummaries.length > 0 && selectedScheduleYear === null) {
+      const activeSummary =
+        fiscalYearSummaries.find((s) => s.openCount > 0) || fiscalYearSummaries[0];
+      setSelectedScheduleYear(activeSummary.fiscalYear);
+    }
+    if (!targetFiscalYearInput && maxFiscalYear) {
+      setTargetFiscalYearInput(String(maxFiscalYear + 1));
+    }
+  }, [fiscalYearSummaries, selectedScheduleYear, maxFiscalYear, targetFiscalYearInput]);
+
+  const generateFiscalYearMutation = useMutation({
+    mutationFn: async (fiscalYear: number) => {
+      const res = await api.post<{
+        message: string;
+        fiscalYear: number;
+        alreadyExists: boolean;
+        count: number;
+        cutoffs: CutoffPeriod[];
+      }>(`/cutoff-periods/generate/${fiscalYear}`);
+      return res.data;
+    },
+    onSuccess: async (data) => {
+      await queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
+      setSelectedScheduleYear(data.fiscalYear);
+      setTargetFiscalYearInput(String(data.fiscalYear + 1));
+      setFeedback({
+        type: "success",
+        message: data.message,
+      });
+    },
+    onError: (err: any) => {
+      setFeedback({
+        type: "error",
+        message:
+          err.response?.data?.message ||
+          err.response?.data?.detail ||
+          err.message ||
+          "Failed to generate cutoff schedule.",
+      });
+    },
+  });
+
+  // Financial Policy (Loan & Penalty + Surplus Distribution Weights)
+  const { data: financialPolicy } = useQuery<FinancialPolicyResponse>({
+    queryKey: ["financial-policy"],
+    queryFn: async () => {
+      const res = await api.get<FinancialPolicyResponse>("/settings/financial-policy");
+      return res.data;
+    },
+  });
+
+  // Editable form state for Loan & Penalty Policies
+  const [gracePeriodInput, setGracePeriodInput] = useState<string>("14");
+  const [contribGracePeriodInput, setContribGracePeriodInput] = useState<string>("5");
+  const [latePenaltyRateInput, setLatePenaltyRateInput] = useState<string>("5.00");
+  const [loanInterestRateInput, setLoanInterestRateInput] = useState<string>("5.00");
+
+  // Editable form state for Future Annual Surplus Distribution Weights
+  const [dividendWeightInput, setDividendWeightInput] = useState<string>("65");
+  const [patronageWeightInput, setPatronageWeightInput] = useState<string>("30");
+  const [managementWeightInput, setManagementWeightInput] = useState<string>("5");
+
+  useEffect(() => {
+    if (financialPolicy) {
+      setGracePeriodInput(String(financialPolicy.activeLoanPolicy.gracePeriodDays ?? 14));
+      setContribGracePeriodInput(
+        String(financialPolicy.activeLoanPolicy.contributionGracePeriodDays ?? 5)
+      );
+      setLatePenaltyRateInput(
+        financialPolicy.activeLoanPolicy.latePenaltyRatePercent.toFixed(2)
+      );
+      setLoanInterestRateInput(
+        financialPolicy.activeLoanPolicy.standardLoanInterestRatePercent.toFixed(2)
+      );
+
+      setDividendWeightInput(
+        String(financialPolicy.nextYearDistributionWeights.dividendWeightPercent)
+      );
+      setPatronageWeightInput(
+        String(financialPolicy.nextYearDistributionWeights.patronageWeightPercent)
+      );
+      setManagementWeightInput(
+        String(financialPolicy.nextYearDistributionWeights.managementWeightPercent)
+      );
+    }
+  }, [financialPolicy]);
+
+  const distributionWeightsSum = useMemo(() => {
+    const d = parseFloat(dividendWeightInput) || 0;
+    const p = parseFloat(patronageWeightInput) || 0;
+    const m = parseFloat(managementWeightInput) || 0;
+    return Math.round((d + p + m) * 100) / 100;
+  }, [dividendWeightInput, patronageWeightInput, managementWeightInput]);
+
+  const updateLoanPolicyMutation = useMutation({
+    mutationFn: async (payload: {
+      gracePeriodDays: number;
+      contributionGracePeriodDays: number;
+      latePenaltyRatePercent: number;
+      standardLoanInterestRatePercent: number;
+    }) => {
+      const res = await api.put<FinancialPolicyResponse>(
+        "/settings/financial-policy/loan",
+        payload
+      );
+      return res.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["financial-policy"] });
+      setFeedback({
+        type: "success",
+        message:
+          "Loan & Penalty policy updated. New rates will apply prospectively to future loans and penalties only.",
+      });
+    },
+    onError: (err: any) => {
+      setFeedback({
+        type: "error",
+        message:
+          err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to update Loan & Penalty policy.",
+      });
+    },
+  });
+
+  const updateDistributionWeightsMutation = useMutation({
+    mutationFn: async (payload: {
+      dividendWeightPercent: number;
+      patronageWeightPercent: number;
+      managementWeightPercent: number;
+    }) => {
+      const res = await api.put<FinancialPolicyResponse>(
+        "/settings/financial-policy/distribution",
+        payload
+      );
+      return res.data;
+    },
+    onSuccess: async (data) => {
+      await queryClient.invalidateQueries({ queryKey: ["financial-policy"] });
+      await queryClient.invalidateQueries({ queryKey: ["distribution-preview"] });
+      setFeedback({
+        type: "success",
+        message: `Annual Surplus Distribution Weights saved (${data.nextYearDistributionWeights.dividendWeightPercent}% / ${data.nextYearDistributionWeights.patronageWeightPercent}% / ${data.nextYearDistributionWeights.managementWeightPercent}%). Effective starting FY ${data.currentActiveFiscalYear + 1}.`,
+      });
+    },
+    onError: (err: any) => {
+      setFeedback({
+        type: "error",
+        message:
+          err.response?.data?.detail ||
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to update Annual Surplus Distribution Weights.",
+      });
+    },
+  });
 
   // Load users
   const loadUsers = useCallback(async () => {
@@ -88,6 +309,14 @@ export const SettingsPage: React.FC = () => {
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [users, searchQuery, roleFilter, statusFilter]);
+
+  const [userPage, setUserPage] = useState<number>(1);
+  const [userPageSize, setUserPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (userPage - 1) * userPageSize;
+    return filteredUsers.slice(start, start + userPageSize);
+  }, [filteredUsers, userPage, userPageSize]);
 
   // Metrics
   const metrics = useMemo(() => {
@@ -460,7 +689,7 @@ export const SettingsPage: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    filteredUsers.map((item) => {
+                    paginatedUsers.map((item) => {
                       const isPrimaryAdmin = item.username.toLowerCase() === "admin";
                       const isSelf = item.id === currentUser?.id;
                       const isUpdating = updatingUserId === item.id;
@@ -610,6 +839,16 @@ export const SettingsPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            {!isLoading && filteredUsers.length > 0 && (
+              <TablePagination
+                page={userPage}
+                pageSize={userPageSize}
+                totalItems={filteredUsers.length}
+                onPageChange={setUserPage}
+                onPageSizeChange={setUserPageSize}
+                itemLabel="operator accounts"
+              />
+            )}
           </div>
         </div>
       )}
@@ -637,7 +876,9 @@ export const SettingsPage: React.FC = () => {
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Fiscal Year</span>
-                  <span className="text-slate-800 font-bold text-sm">FY-2026 (Active)</span>
+                  <span className="text-slate-800 font-bold text-sm">
+                    FY-{selectedScheduleYear || maxFiscalYear} (Active)
+                  </span>
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Cutoff Schedule</span>
@@ -651,94 +892,513 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             {/* Loan Engine Policy Card */}
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-              <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                  <Percent className="w-5 h-5" />
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const grace = parseInt(gracePeriodInput, 10);
+                const contribGrace = parseInt(contribGracePeriodInput, 10);
+                const penalty = parseFloat(latePenaltyRateInput);
+                const interest = parseFloat(loanInterestRateInput);
+
+                if (isNaN(grace) || grace < 0 || grace > 90) {
+                  setFeedback({
+                    type: "error",
+                    message: "Loan Cutoff Grace Period must be between 0 and 90 calendar days.",
+                  });
+                  return;
+                }
+                if (isNaN(contribGrace) || contribGrace < 0 || contribGrace > 90) {
+                  setFeedback({
+                    type: "error",
+                    message: "Contribution Cutoff Grace Period must be between 0 and 90 calendar days.",
+                  });
+                  return;
+                }
+                if (isNaN(penalty) || penalty < 0 || penalty > 50) {
+                  setFeedback({
+                    type: "error",
+                    message: "Late Penalty Charge Rate must be between 0% and 50%.",
+                  });
+                  return;
+                }
+                if (isNaN(interest) || interest <= 0 || interest > 50) {
+                  setFeedback({
+                    type: "error",
+                    message: "Standard Loan Interest Rate must be greater than 0% and at most 50%.",
+                  });
+                  return;
+                }
+
+                updateLoanPolicyMutation.mutate({
+                  gracePeriodDays: grace,
+                  contributionGracePeriodDays: contribGrace,
+                  latePenaltyRatePercent: penalty,
+                  standardLoanInterestRatePercent: interest,
+                });
+              }}
+              className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4"
+            >
+              <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Percent className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Loan & Penalty Policies</h3>
+                    <p className="text-xs text-slate-500">
+                      Flexible inflation-ready parameters for loans, contributions & penalties
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Loan & Penalty Policies</h3>
-                  <p className="text-xs text-slate-500">Rules applied in Amortization Engine</p>
-                </div>
+                <button
+                  type="submit"
+                  disabled={updateLoanPolicyMutation.isPending}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all disabled:opacity-50"
+                >
+                  {updateLoanPolicyMutation.isPending ? "Saving..." : "Save Policy"}
+                </button>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-[11px] text-amber-900 flex items-start gap-2">
+                <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Prospective Only:</strong> Updates apply strictly to <strong>future loans and future penalties</strong>. Existing loans and prior penalties remain locked at the rates in effect when they were originated.
+                </span>
               </div>
 
               <div className="space-y-3 text-xs">
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                <div className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl">
                   <div>
-                    <span className="font-bold text-slate-800 block">Cutoff Payment Grace Period</span>
-                    <span className="text-[11px] text-slate-500">Grace period granted before late surcharge accrues</span>
+                    <label htmlFor="grace-period-input" className="font-bold text-slate-800 block">
+                      Loan Cutoff Grace Period
+                    </label>
+                    <span className="text-[11px] text-slate-500">
+                      Calendar days granted for loan repayments before late penalty charge applies (default: 14 days)
+                    </span>
                   </div>
-                  <span className="font-bold px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    3 Calendar Days
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      id="grace-period-input"
+                      type="number"
+                      min={0}
+                      max={90}
+                      step={1}
+                      value={gracePeriodInput}
+                      onChange={(e) => setGracePeriodInput(e.target.value)}
+                      className="w-20 px-2.5 py-1.5 text-right font-mono font-bold text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-slate-900"
+                    />
+                    <span className="w-12 text-left text-xs font-bold text-slate-600">Days</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                <div className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl">
                   <div>
-                    <span className="font-bold text-slate-800 block">Late Penalty Charge Rate</span>
-                    <span className="text-[11px] text-slate-500">Assessed on overdue unpaid principal balance</span>
+                    <label htmlFor="contrib-grace-period-input" className="font-bold text-slate-800 block">
+                      Contribution Cutoff Grace Period
+                    </label>
+                    <span className="text-[11px] text-slate-500">
+                      Calendar days after cutoff before late penalty charge applies to delayed contributions (default: 5 days)
+                    </span>
                   </div>
-                  <span className="font-bold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 border border-amber-200">
-                    2.0% Monthly (₱)
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      id="contrib-grace-period-input"
+                      type="number"
+                      min={0}
+                      max={90}
+                      step={1}
+                      value={contribGracePeriodInput}
+                      onChange={(e) => setContribGracePeriodInput(e.target.value)}
+                      className="w-20 px-2.5 py-1.5 text-right font-mono font-bold text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-slate-900"
+                    />
+                    <span className="w-12 text-left text-xs font-bold text-slate-600">Days</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                <div className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl">
                   <div>
-                    <span className="font-bold text-slate-800 block">Standard Loan Interest</span>
-                    <span className="text-[11px] text-slate-500">Flat upfront origination interest rate</span>
+                    <label htmlFor="late-penalty-input" className="font-bold text-slate-800 block">
+                      Late Penalty Charge Rate
+                    </label>
+                    <span className="text-[11px] text-slate-500">
+                      Shared penalty rate assessed on overdue loans (past {gracePeriodInput || 14}d grace) & delayed contributions (past {contribGracePeriodInput || 5}d grace)
+                    </span>
                   </div>
-                  <span className="font-bold px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 border border-blue-200">
-                    5.0% Flat
-                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      id="late-penalty-input"
+                      type="number"
+                      min={0}
+                      max={50}
+                      step="0.1"
+                      value={latePenaltyRateInput}
+                      onChange={(e) => setLatePenaltyRateInput(e.target.value)}
+                      className="w-20 px-2.5 py-1.5 text-right font-mono font-bold text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-slate-900"
+                    />
+                    <span className="w-12 text-left text-xs font-bold text-slate-600">%</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 p-3 bg-slate-50 rounded-xl">
+                  <div>
+                    <label htmlFor="loan-interest-input" className="font-bold text-slate-800 block">
+                      Standard Loan Interest
+                    </label>
+                    <span className="text-[11px] text-slate-500">
+                      Flat upfront origination interest rate for new loans
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <input
+                      id="loan-interest-input"
+                      type="number"
+                      min={0.1}
+                      max={50}
+                      step="0.1"
+                      value={loanInterestRateInput}
+                      onChange={(e) => setLoanInterestRateInput(e.target.value)}
+                      className="w-20 px-2.5 py-1.5 text-right font-mono font-bold text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-slate-900"
+                    />
+                    <span className="w-12 text-left text-xs font-bold text-slate-600">% Flat</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </form>
           </div>
 
           {/* Surplus Distribution Formula Card */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-              <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                <Layers className="w-5 h-5" />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const div = parseFloat(dividendWeightInput);
+              const pat = parseFloat(patronageWeightInput);
+              const mgmt = parseFloat(managementWeightInput);
+
+              if (isNaN(div) || isNaN(pat) || isNaN(mgmt) || div < 0 || pat < 0 || mgmt < 0) {
+                setFeedback({
+                  type: "error",
+                  message: "All distribution weights must be valid non-negative numbers.",
+                });
+                return;
+              }
+
+              const sum = Math.round((div + pat + mgmt) * 100) / 100;
+              if (sum !== 100) {
+                setFeedback({
+                  type: "error",
+                  message: `Annual Surplus Distribution Weights must sum to 100% (currently ${sum}%).`,
+                });
+                return;
+              }
+
+              updateDistributionWeightsMutation.mutate({
+                dividendWeightPercent: div,
+                patronageWeightPercent: pat,
+                managementWeightPercent: mgmt,
+              });
+            }}
+            className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Annual Surplus Distribution Weights
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Configure statutory dividend, patronage, and reserve allocation weights
+                  </p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Annual Surplus Distribution Weights</h3>
-                <p className="text-xs text-slate-500">Mandated statutory dividend allocation parameters</p>
+
+              <div className="flex items-center gap-3">
+                <span
+                  className={`text-xs font-mono font-bold px-2.5 py-1 rounded-lg border ${
+                    distributionWeightsSum === 100
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-rose-50 text-rose-700 border-rose-200"
+                  }`}
+                >
+                  Total: {distributionWeightsSum}%
+                </span>
+                <button
+                  type="submit"
+                  disabled={
+                    updateDistributionWeightsMutation.isPending || distributionWeightsSum !== 100
+                  }
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all disabled:opacity-50"
+                >
+                  {updateDistributionWeightsMutation.isPending
+                    ? "Saving..."
+                    : `Save for FY ${(financialPolicy?.currentActiveFiscalYear || 2026) + 1}+`}
+                </button>
+              </div>
+            </div>
+
+            {/* Governance Lock Notice & Active Current Year Weights */}
+            <div className="p-3.5 rounded-xl bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="text-xs">
+                  <span className="font-bold text-emerald-300">
+                    Current Fiscal Year (FY {financialPolicy?.currentActiveFiscalYear || 2026}) Locked Policy:
+                  </span>{" "}
+                  <span className="text-slate-300">
+                    Mid-year adjustments are prohibited from altering the active fiscal year. Any changes saved below take effect starting{" "}
+                    <strong className="text-white">
+                      FY {(financialPolicy?.currentActiveFiscalYear || 2026) + 1}
+                    </strong>{" "}
+                    after FY {financialPolicy?.currentActiveFiscalYear || 2026} ends.
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0 text-xs font-mono font-bold bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                <span className="text-slate-400">FY {financialPolicy?.currentActiveFiscalYear || 2026}:</span>
+                <span className="text-purple-300">
+                  {financialPolicy?.currentYearDistributionWeights.dividendWeightPercent ?? 65}%
+                </span>
+                <span className="text-slate-600">/</span>
+                <span className="text-blue-300">
+                  {financialPolicy?.currentYearDistributionWeights.patronageWeightPercent ?? 30}%
+                </span>
+                <span className="text-slate-600">/</span>
+                <span className="text-amber-300">
+                  {financialPolicy?.currentYearDistributionWeights.managementWeightPercent ?? 5}%
+                </span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-purple-900 text-sm">General Dividend</span>
-                  <span className="text-base font-bold text-purple-700">65%</span>
+              <div className="p-4 bg-purple-50/50 rounded-xl border border-purple-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="div-weight-input" className="font-bold text-purple-900 text-sm">
+                    General Dividend
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      id="div-weight-input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={dividendWeightInput}
+                      onChange={(e) => setDividendWeightInput(e.target.value)}
+                      className="w-20 px-2.5 py-1 text-right font-mono font-bold text-sm bg-white border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 text-purple-900"
+                    />
+                    <span className="text-sm font-bold text-purple-700">%</span>
+                  </div>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Allocated proportionally to members based on cumulative share contributions and member equity.
+                  Allocated proportionally to members based on cumulative share contributions and member equity (Effective FY {(financialPolicy?.currentActiveFiscalYear || 2026) + 1}+).
                 </p>
               </div>
 
-              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-blue-900 text-sm">Patronage Refund</span>
-                  <span className="text-base font-bold text-blue-700">30%</span>
+              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="pat-weight-input" className="font-bold text-blue-900 text-sm">
+                    Patronage Refund
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      id="pat-weight-input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={patronageWeightInput}
+                      onChange={(e) => setPatronageWeightInput(e.target.value)}
+                      className="w-20 px-2.5 py-1 text-right font-mono font-bold text-sm bg-white border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 text-blue-900"
+                    />
+                    <span className="text-sm font-bold text-blue-700">%</span>
+                  </div>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Distributed to borrowing members based on actual interest paid and loan volume utilization.
+                  Distributed to borrowing members based on actual interest paid and loan volume utilization (Effective FY {(financialPolicy?.currentActiveFiscalYear || 2026) + 1}+).
                 </p>
               </div>
 
-              <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-bold text-amber-900 text-sm">Management & Reserve</span>
-                  <span className="text-base font-bold text-amber-700">5%</span>
+              <div className="p-4 bg-amber-50/50 rounded-xl border border-amber-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="mgmt-weight-input" className="font-bold text-amber-900 text-sm">
+                    Management & Reserve
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input
+                      id="mgmt-weight-input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.5"
+                      value={managementWeightInput}
+                      onChange={(e) => setManagementWeightInput(e.target.value)}
+                      className="w-20 px-2.5 py-1 text-right font-mono font-bold text-sm bg-white border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-600 text-amber-900"
+                    />
+                    <span className="text-sm font-bold text-amber-700">%</span>
+                  </div>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Retained by the cooperative board for operational reserves, risk buffer, and administrative overhead.
+                  Retained by the cooperative board for operational reserves, risk buffer, and administrative overhead (Effective FY {(financialPolicy?.currentActiveFiscalYear || 2026) + 1}+).
                 </p>
               </div>
             </div>
+          </form>
+
+          {/* Reusable Fiscal Year & Cutoff Schedule Generator Card */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Fiscal Year & Cutoff Schedule Generator
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Generate and inspect the 24 semi-monthly cutoff periods (15th & end-of-month) for any fiscal year.
+                  </p>
+                </div>
+              </div>
+
+              {/* Generate New Fiscal Year Schedule Form */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const yr = parseInt(targetFiscalYearInput, 10);
+                  if (isNaN(yr) || yr < 2020 || yr > 2100) {
+                    setFeedback({
+                      type: "error",
+                      message: "Please enter a valid Fiscal Year between 2020 and 2100.",
+                    });
+                    return;
+                  }
+                  if (
+                    window.confirm(
+                      `Generate 24 semi-monthly cutoff periods (Jan-15 through Dec-31) for Fiscal Year ${yr}?`
+                    )
+                  ) {
+                    generateFiscalYearMutation.mutate(yr);
+                  }
+                }}
+                className="flex items-center gap-2"
+              >
+                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl">
+                  <label
+                    htmlFor="generate-fy-input"
+                    className="text-[11px] font-bold text-slate-500 uppercase tracking-wider"
+                  >
+                    Target FY:
+                  </label>
+                  <input
+                    id="generate-fy-input"
+                    type="number"
+                    min={2020}
+                    max={2100}
+                    value={targetFiscalYearInput}
+                    onChange={(e) => setTargetFiscalYearInput(e.target.value)}
+                    className="w-20 text-xs font-bold text-slate-900 bg-white border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={generateFiscalYearMutation.isPending}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all disabled:opacity-50"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {generateFiscalYearMutation.isPending
+                    ? "Generating..."
+                    : "Generate 24 Cutoffs"}
+                </button>
+              </form>
+            </div>
+
+            {/* Fiscal Year Schedule Cards */}
+            {isLoadingCutoffs ? (
+              <div className="py-8 text-center text-xs text-slate-400">
+                Loading fiscal year schedules...
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {fiscalYearSummaries.map((summary) => {
+                    const isSelected = selectedScheduleYear === summary.fiscalYear;
+                    const isAllClosed = summary.openCount === 0 && summary.total > 0;
+                    return (
+                      <button
+                        key={summary.fiscalYear}
+                        type="button"
+                        onClick={() => setSelectedScheduleYear(summary.fiscalYear)}
+                        className={`p-4 rounded-xl border text-left transition-all ${
+                          isSelected
+                            ? "bg-emerald-50/70 border-emerald-400 ring-1 ring-emerald-400/50"
+                            : "bg-slate-50/70 border-slate-200 hover:bg-slate-100/70"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-extrabold text-slate-900">
+                            Fiscal Year {summary.fiscalYear}
+                          </span>
+                          {isAllClosed ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                              <Lock className="w-2.5 h-2.5" /> Closed
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              <Unlock className="w-2.5 h-2.5" /> Active
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-600">
+                          <span>{summary.total} Semi-Monthly Cutoffs</span>
+                          <span className="font-mono font-semibold text-[11px]">
+                            {summary.openCount} Open / {summary.closedCount} Closed
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Preview of the 24 Cutoffs for Selected Fiscal Year */}
+                {selectedScheduleYear && (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                        FY {selectedScheduleYear} Cutoff Periods Schedule
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        Jan-15 through Dec-31 (15th & End of Month)
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                      {(
+                        fiscalYearSummaries.find((s) => s.fiscalYear === selectedScheduleYear)
+                          ?.cutoffs || []
+                      ).map((c) => (
+                        <div
+                          key={c.id}
+                          className={`px-2.5 py-2 rounded-lg border text-xs flex items-center justify-between ${
+                            c.isClosed
+                              ? "bg-slate-100 border-slate-200 text-slate-500"
+                              : "bg-white border-emerald-200 text-slate-800 shadow-2xs"
+                          }`}
+                        >
+                          <span className="font-mono font-bold text-[11px]">{c.label}</span>
+                          {c.isClosed ? (
+                            <Lock className="w-3 h-3 text-rose-500 shrink-0" />
+                          ) : (
+                            <Unlock className="w-3 h-3 text-emerald-600 shrink-0" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

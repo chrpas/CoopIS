@@ -34,7 +34,10 @@ public record DistributionPreviewDto(
     int BorrowingMembersCount,
     bool IsAlreadyFinalized,
     DateTime? FinalizedAt,
-    List<MemberAllocationDto> Allocations
+    List<MemberAllocationDto> Allocations,
+    decimal DividendWeightPercent = 65m,
+    decimal PatronageWeightPercent = 30m,
+    decimal ManagementWeightPercent = 5m
 );
 
 public record MemberSoaContributionItemDto(

@@ -32,10 +32,22 @@ export const LoginPage: React.FC = () => {
         navigate("/loans", { replace: true });
       }
     } catch (err: unknown) {
-      const errorResponse = err as { response?: { data?: { message?: string } } };
-      setError(
-        errorResponse?.response?.data?.message || "Authentication failed. Please verify credentials."
-      );
+      const errorResponse = err as {
+        response?: { status?: number; data?: { message?: string; detail?: string } };
+      };
+      const status = errorResponse?.response?.status;
+      const serverMsg =
+        errorResponse?.response?.data?.message || errorResponse?.response?.data?.detail;
+
+      if (serverMsg) {
+        setError(serverMsg);
+      } else if (!status || status >= 500) {
+        setError(
+          "Unable to reach the CoopIS Backend API (http://localhost:5208). Please ensure the API server is running."
+        );
+      } else {
+        setError("Authentication failed. Please verify credentials.");
+      }
     } finally {
       setLoading(false);
     }

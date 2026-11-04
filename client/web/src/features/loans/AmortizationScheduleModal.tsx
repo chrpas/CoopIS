@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { Loan, AmortizationScheduleItem } from "../../types";
+import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import { RecordRepaymentModal } from "./RecordRepaymentModal";
 import {
   X,
@@ -26,11 +27,12 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
   loan,
   isOpen,
   onClose,
-  onOpenPenaltiesAudit,
 }) => {
   const [selectedCutoffForPayment, setSelectedCutoffForPayment] =
     useState<AmortizationScheduleItem | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   // Fetch loan amortization schedule reactively
   const {
@@ -61,10 +63,27 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
   // Dynamic remaining balance: remainingBalance = principalAmount - sum(repayments.principalPaid)
   const remainingBalance = Math.max(0, totalPrincipal - totalPrincipalPaid);
 
-  const totalPenaltiesCollected = schedule.reduce(
+  const isScheduleItemPaid = (item: AmortizationScheduleItem) =>
+    (item.status || "").toUpperCase() === "PAID" ||
+    Math.round((Number(item.principalPaid) || 0) * 100) >=
+      Math.round((Number(item.scheduledPrincipal) || 0) * 100);
+
+  const totalPenaltiesPaid = schedule.reduce(
     (sum, item) => sum + (Number(item.latePenaltyPaid) || 0),
     0
   );
+  const totalPenaltiesAccrued = schedule.reduce(
+    (sum, item) =>
+      sum + (isScheduleItemPaid(item) ? 0 : Number(item.accruedPenalty) || 0),
+    0
+  );
+  const totalPenaltiesCollected = schedule.reduce((sum, item) => {
+    const paidPenalty = Number(item.latePenaltyPaid) || 0;
+    const accruedPenalty = isScheduleItemPaid(item)
+      ? 0
+      : Number(item.accruedPenalty) || 0;
+    return sum + (paidPenalty > 0 ? paidPenalty + accruedPenalty : accruedPenalty);
+  }, 0);
 
   const percentRepaid =
     totalPrincipal > 0
@@ -141,25 +160,15 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
               <button
                 type="button"
                 onClick={() => refetch()}
-                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                title="Refresh schedule"
+                disabled={isFetching}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                title="Refresh Books"
               >
                 <RefreshCw
-                  className={`w-4 h-4 ${isFetching ? "animate-spin" : ""}`}
+                  className={`w-3.5 h-3.5 ${isFetching ? "animate-spin text-emerald-400" : ""}`}
                 />
+                Refresh Books
               </button>
-
-              {onOpenPenaltiesAudit && (
-                <button
-                  type="button"
-                  onClick={onOpenPenaltiesAudit}
-                  className="px-3 py-1.5 text-xs font-semibold bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 border border-amber-500/30 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
-                  title="Audit Late Penalties"
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  Audit Penalties
-                </button>
-              )}
 
               <button
                 type="button"
@@ -200,6 +209,7 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                     ₱
                     {Number(loan.cutoffPaymentAmount).toLocaleString("en-US", {
                       minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
                     })}
                     /cutoff
                   </span>
@@ -237,12 +247,12 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                 </div>
               </div>
 
-              {/* Total Penalties Collected */}
+              {/* Total Late Penalties */}
               <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between text-amber-900">
                   <span className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-amber-600" />
-                    Penalties Collected
+                    Total Late Penalties
                   </span>
                   <div className="w-7 h-7 rounded-lg bg-amber-200/60 flex items-center justify-center text-amber-800">
                     <Coins className="w-4 h-4" />
@@ -255,7 +265,7 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                   })}
                 </div>
                 <div className="text-[11px] text-amber-800/80 mt-1">
-                  14-day cutoff grace • 5% penalty rate applied
+                  ₱{totalPenaltiesPaid.toLocaleString("en-US", { minimumFractionDigits: 2 })} paid • ₱{totalPenaltiesAccrued.toLocaleString("en-US", { minimumFractionDigits: 2 })} accrued
                 </div>
               </div>
             </div>
@@ -301,9 +311,12 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-medium">
-                      {schedule.map((item) => {
-                        const isOverdue = item.status === "OVERDUE";
-                        const isPaid = item.status === "PAID";
+                      {schedule
+                        .slice((page - 1) * pageSize, page * pageSize)
+                        .map((item) => {
+                        const isPaid = isScheduleItemPaid(item);
+                        const effectiveStatus = isPaid ? "PAID" : item.status;
+                        const isOverdue = !isPaid && effectiveStatus === "OVERDUE";
 
                         return (
                           <tr
@@ -355,21 +368,21 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                               ₱
                               {Number(item.scheduledPrincipal).toLocaleString(
                                 "en-US",
-                                { minimumFractionDigits: 2 }
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                               )}
                             </td>
                             <td className="py-3 px-3.5 text-right font-mono font-bold text-emerald-700">
                               ₱
                               {Number(item.principalPaid).toLocaleString(
                                 "en-US",
-                                { minimumFractionDigits: 2 }
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                               )}
                             </td>
                             <td className="py-3 px-3.5 text-right font-mono font-semibold text-slate-700">
                               ₱
                               {Number(item.remainingBalance).toLocaleString(
                                 "en-US",
-                                { minimumFractionDigits: 2 }
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                               )}
                             </td>
                             <td className="py-3 px-3.5 text-right font-mono">
@@ -378,36 +391,36 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                                   ₱
                                   {Number(item.latePenaltyPaid).toLocaleString(
                                     "en-US",
-                                    { minimumFractionDigits: 2 }
+                                    { minimumFractionDigits: 2, maximumFractionDigits: 2 }
                                   )}
                                 </span>
-                              ) : Number(item.accruedPenalty || 0) > 0 ? (
+                              ) : !isPaid && Number(item.accruedPenalty || 0) > 0 ? (
                                 <span className="font-semibold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200" title="Accrued 5% Late Penalty">
-                                  +₱{Number(item.accruedPenalty).toLocaleString("en-US", { minimumFractionDigits: 2 })} (5%)
+                                  +₱{Number(item.accruedPenalty).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (5%)
                                 </span>
                               ) : (
                                 <span className="text-slate-400">₱0.00</span>
                               )}
                             </td>
                             <td className="py-3 px-3.5 text-center">
-                              {getStatusBadge(item.status, item.daysOverdue)}
+                              {getStatusBadge(effectiveStatus, item.daysOverdue)}
                             </td>
                             <td className="py-3 px-3.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRecordPayment(item)}
-                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer ${
-                                  isOverdue
-                                    ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-700/20"
-                                    : isPaid
-                                    ? "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-                                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20"
-                                }`}
-                                title={`Record repayment for ${item.cutoffLabel}`}
-                              >
-                                <CreditCard className="w-3.5 h-3.5" />
-                                Record Payment
-                              </button>
+                              {!isPaid && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRecordPayment(item)}
+                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                                    isOverdue
+                                      ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-700/20"
+                                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20"
+                                  }`}
+                                  title={`Record repayment for ${item.cutoffLabel}`}
+                                >
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                  Record Payment
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
@@ -415,6 +428,16 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                     </tbody>
                   </table>
                 </div>
+              )}
+              {!isLoading && schedule.length > 0 && (
+                <TablePagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={schedule.length}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  itemLabel="installments"
+                />
               )}
             </div>
           </div>

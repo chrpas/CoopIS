@@ -21,18 +21,93 @@ public static class DbInitializer
         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
     };
 
+    public static List<CutoffPeriod> BuildCutoffPeriodsForYear(int fiscalYear)
+    {
+        var cutoffList = new List<CutoffPeriod>(24);
+
+        for (int m = 0; m < 12; m++)
+        {
+            string monthName = MonthNames[m];
+
+            // 1st Cutoff: 15th
+            var firstDate = new DateTime(fiscalYear, m + 1, 15, 0, 0, 0, DateTimeKind.Utc);
+            cutoffList.Add(new CutoffPeriod
+            {
+                CutoffDate = firstDate,
+                Label = $"{monthName}-15",
+                FiscalYear = fiscalYear,
+                IsClosed = false,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            // 2nd Cutoff: End of month
+            int daysInMonth = DateTime.DaysInMonth(fiscalYear, m + 1);
+            var secondDate = new DateTime(fiscalYear, m + 1, daysInMonth, 0, 0, 0, DateTimeKind.Utc);
+            cutoffList.Add(new CutoffPeriod
+            {
+                CutoffDate = secondDate,
+                Label = $"{monthName}-{daysInMonth}",
+                FiscalYear = fiscalYear,
+                IsClosed = false,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
+        return cutoffList;
+    }
+
+    public static async Task<List<CutoffPeriod>> EnsureFiscalYearCutoffsAsync(
+        AppDbContext context,
+        int fiscalYear,
+        System.Threading.CancellationToken cancellationToken = default)
+    {
+        var existing = await context.CutoffPeriods
+            .Where(c => c.FiscalYear == fiscalYear)
+            .OrderBy(c => c.CutoffDate)
+            .ToListAsync(cancellationToken);
+
+        if (existing.Count > 0)
+        {
+            return existing;
+        }
+
+        var generated = BuildCutoffPeriodsForYear(fiscalYear);
+        context.CutoffPeriods.AddRange(generated);
+        await context.SaveChangesAsync(cancellationToken);
+        return generated;
+    }
+
     public static async Task InitializeAsync(AppDbContext context, ILogger logger)
     {
         logger.LogInformation("Ensuring database is created and initialized...");
         await context.Database.EnsureCreatedAsync();
 
+        if (context.Database.IsRelational())
+        {
+            try
+            {
+                await context.Database.ExecuteSqlRawAsync(@"
+                    CREATE TABLE IF NOT EXISTS ""AppSettings"" (
+                        ""Key"" character varying(128) NOT NULL,
+                        ""Value"" text NOT NULL,
+                        ""UpdatedAt"" timestamp with time zone NOT NULL,
+                        CONSTRAINT ""PK_AppSettings"" PRIMARY KEY (""Key"")
+                    );");
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not verify AppSettings table via raw SQL.");
+            }
+        }
+
         const int fiscalYear = 2026;
 
-        // 1. Seed Accounts (Admin & User) - Settings & User
-        if (!await context.Users.AnyAsync())
+        // 1. Ensure Demo Accounts (Admin & User) always exist and have valid credentials
+        var existingAdmin = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "admin");
+        if (existingAdmin == null)
         {
-            logger.LogInformation("Seeding default authentication accounts...");
-            var adminUser = new UserAccount
+            logger.LogInformation("Seeding default Admin account...");
+            context.Users.Add(new UserAccount
             {
                 Username = "admin",
                 Email = "admin@coopis.org",
@@ -40,9 +115,33 @@ public static class DbInitializer
                 Role = UserRole.Admin,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
-            };
+            });
+        }
+        else
+        {
+            bool validAdminPass = false;
+            try
+            {
+                validAdminPass = BCrypt.Net.BCrypt.Verify("Admin123!", existingAdmin.PasswordHash);
+            }
+            catch
+            {
+                validAdminPass = false;
+            }
 
-            var standardUser = new UserAccount
+            if (!validAdminPass || !existingAdmin.IsActive || existingAdmin.Role != UserRole.Admin)
+            {
+                existingAdmin.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!");
+                existingAdmin.IsActive = true;
+                existingAdmin.Role = UserRole.Admin;
+            }
+        }
+
+        var existingLoanUser = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "loanuser");
+        if (existingLoanUser == null)
+        {
+            logger.LogInformation("Seeding default Loan Officer (loanuser) account...");
+            context.Users.Add(new UserAccount
             {
                 Username = "loanuser",
                 Email = "loanuser@coopis.org",
@@ -50,50 +149,49 @@ public static class DbInitializer
                 Role = UserRole.User,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
-            };
-
-            context.Users.AddRange(adminUser, standardUser);
-            await context.SaveChangesAsync();
-            logger.LogInformation("Default Admin and Loan User seeded successfully.");
+            });
         }
+        else
+        {
+            bool validUserPass = false;
+            try
+            {
+                validUserPass = BCrypt.Net.BCrypt.Verify("User123!", existingLoanUser.PasswordHash);
+            }
+            catch
+            {
+                validUserPass = false;
+            }
+
+            if (!validUserPass || !existingLoanUser.IsActive || existingLoanUser.Role != UserRole.User)
+            {
+                existingLoanUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("User123!");
+                existingLoanUser.IsActive = true;
+                existingLoanUser.Role = UserRole.User;
+            }
+        }
+
+        await context.SaveChangesAsync();
 
         // 2. Seed 24 Cutoff Periods for 2026
         if (!await context.CutoffPeriods.AnyAsync(c => c.FiscalYear == fiscalYear))
         {
             logger.LogInformation("Seeding 24 semi-monthly cutoff periods for {FiscalYear}...", fiscalYear);
-            var cutoffList = new List<CutoffPeriod>();
-
-            for (int m = 0; m < 12; m++)
-            {
-                string monthName = MonthNames[m];
-
-                // 1st Cutoff: 15th
-                var firstDate = new DateTime(fiscalYear, m + 1, 15, 0, 0, 0, DateTimeKind.Utc);
-                cutoffList.Add(new CutoffPeriod
-                {
-                    CutoffDate = firstDate,
-                    Label = $"{monthName}-15",
-                    FiscalYear = fiscalYear,
-                    IsClosed = false,
-                    CreatedAt = DateTime.UtcNow
-                });
-
-                // 2nd Cutoff: End of month
-                int daysInMonth = DateTime.DaysInMonth(fiscalYear, m + 1);
-                var secondDate = new DateTime(fiscalYear, m + 1, daysInMonth, 0, 0, 0, DateTimeKind.Utc);
-                cutoffList.Add(new CutoffPeriod
-                {
-                    CutoffDate = secondDate,
-                    Label = $"{monthName}-{daysInMonth}",
-                    FiscalYear = fiscalYear,
-                    IsClosed = false,
-                    CreatedAt = DateTime.UtcNow
-                });
-            }
-
+            var cutoffList = BuildCutoffPeriodsForYear(fiscalYear);
             context.CutoffPeriods.AddRange(cutoffList);
             await context.SaveChangesAsync();
             logger.LogInformation("Seeded 24 cutoff periods (Jan-15 through Dec-31).");
+        }
+
+        // 2b. Automatic Fiscal Year Rollover check on startup:
+        // If all cutoffs in the latest seeded fiscal year are closed, automatically seed the next fiscal year.
+        var latestYear = await context.CutoffPeriods.MaxAsync(c => (int?)c.FiscalYear) ?? fiscalYear;
+        var hasOpenInLatestYear = await context.CutoffPeriods.AnyAsync(c => c.FiscalYear == latestYear && !c.IsClosed);
+        if (!hasOpenInLatestYear)
+        {
+            int nextFiscalYear = latestYear + 1;
+            logger.LogInformation("All cutoff periods for FY {LatestYear} are closed. Rolling over and seeding 24 cutoff periods for FY {NextYear}...", latestYear, nextFiscalYear);
+            await EnsureFiscalYearCutoffsAsync(context, nextFiscalYear);
         }
 
         // 3. Check if we need to replace data with spreadsheet data
@@ -220,7 +318,7 @@ public static class DbInitializer
                     ReleasedAmount = sl.ReleasedAmount > 0 ? sl.ReleasedAmount : (sl.PrincipalAmount - sl.InterestEarned),
                     TermMonths = sl.TermMonths > 0 ? sl.TermMonths : 6,
                     CutoffsCount = sl.CutoffsCount > 0 ? sl.CutoffsCount : 12,
-                    CutoffPaymentAmount = sl.CutoffPaymentAmount,
+                    CutoffPaymentAmount = Math.Round(sl.CutoffPaymentAmount, 2),
                     Status = loanStatus,
                     ApprovedBy = approverId,
                     Notes = !string.IsNullOrWhiteSpace(sl.Notes) ? sl.Notes : "Multi-Purpose Loan",

@@ -435,6 +435,34 @@ export interface DistributionPreview {
   isAlreadyFinalized: boolean;
   finalizedAt?: string | null;
   allocations: MemberAllocation[];
+  dividendWeightPercent?: number;
+  patronageWeightPercent?: number;
+  managementWeightPercent?: number;
+}
+
+export interface LoanPolicySnapshot {
+  gracePeriodDays: number;
+  contributionGracePeriodDays?: number;
+  latePenaltyRatePercent: number;
+  standardLoanInterestRatePercent: number;
+  effectiveFromUtc: string;
+}
+
+export interface DistributionWeightSnapshot {
+  effectiveFromFiscalYear: number;
+  dividendWeightPercent: number;
+  patronageWeightPercent: number;
+  managementWeightPercent: number;
+  updatedAtUtc: string;
+}
+
+export interface FinancialPolicyResponse {
+  currentActiveFiscalYear: number;
+  activeLoanPolicy: LoanPolicySnapshot;
+  loanPolicyHistory: LoanPolicySnapshot[];
+  currentYearDistributionWeights: DistributionWeightSnapshot;
+  nextYearDistributionWeights: DistributionWeightSnapshot;
+  distributionWeightHistory: DistributionWeightSnapshot[];
 }
 
 export interface MemberSoaContributionItem {

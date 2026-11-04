@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CoopIS.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -19,9 +22,16 @@ public class CutoffPeriodsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetCutoffs()
+    public async Task<IActionResult> GetCutoffs([FromQuery] int? fiscalYear = null)
     {
-        var cutoffs = await _context.CutoffPeriods
+        var query = _context.CutoffPeriods.AsQueryable();
+
+        if (fiscalYear.HasValue)
+        {
+            query = query.Where(c => c.FiscalYear == fiscalYear.Value);
+        }
+
+        var cutoffs = await query
             .OrderBy(c => c.CutoffDate)
             .ToListAsync();
 
@@ -29,7 +39,36 @@ public class CutoffPeriodsController : ControllerBase
     }
 
     /// <summary>
+    /// Generates the 24 semi-monthly cutoff periods (Jan-15 through Dec-31) for the specified fiscal year if not yet created.
+    /// </summary>
+    [HttpPost("generate/{fiscalYear:int}")]
+    [HttpPost("/api/cutoffs/generate/{fiscalYear:int}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GenerateFiscalYearCutoffs(int fiscalYear, CancellationToken cancellationToken)
+    {
+        if (fiscalYear < 2020 || fiscalYear > 2100)
+        {
+            return BadRequest(new { message = "Fiscal year must be between 2020 and 2100." });
+        }
+
+        bool alreadyExists = await _context.CutoffPeriods.AnyAsync(c => c.FiscalYear == fiscalYear, cancellationToken);
+        var cutoffs = await DbInitializer.EnsureFiscalYearCutoffsAsync(_context, fiscalYear, cancellationToken);
+
+        return Ok(new
+        {
+            message = alreadyExists
+                ? $"Fiscal Year {fiscalYear} cutoff periods already exist ({cutoffs.Count} periods)."
+                : $"Successfully generated {cutoffs.Count} semi-monthly cutoff periods for Fiscal Year {fiscalYear}.",
+            fiscalYear,
+            alreadyExists,
+            count = cutoffs.Count,
+            cutoffs
+        });
+    }
+
+    /// <summary>
     /// Locks and finalizes a cutoff period so that contributions can no longer be edited.
+    /// If all cutoffs for the fiscal year become closed, automatically rolls over and generates next fiscal year's cutoffs.
     /// </summary>
     [HttpPost("{id:guid}/finalize")]
     [HttpPost("/api/cutoffs/{id:guid}/finalize")]
@@ -45,11 +84,32 @@ public class CutoffPeriodsController : ControllerBase
         cutoff.IsClosed = true;
         await _context.SaveChangesAsync(cancellationToken);
 
+        // Check if all cutoffs in this fiscal year are now closed; if so, auto-generate next fiscal year
+        bool anyOpenRemaining = await _context.CutoffPeriods
+            .AnyAsync(c => c.FiscalYear == cutoff.FiscalYear && !c.IsClosed, cancellationToken);
+
+        int? rolledOverToFiscalYear = null;
+        if (!anyOpenRemaining)
+        {
+            int nextYear = cutoff.FiscalYear + 1;
+            bool nextYearExisted = await _context.CutoffPeriods.AnyAsync(c => c.FiscalYear == nextYear, cancellationToken);
+            await DbInitializer.EnsureFiscalYearCutoffsAsync(_context, nextYear, cancellationToken);
+            if (!nextYearExisted)
+            {
+                rolledOverToFiscalYear = nextYear;
+            }
+        }
+
+        string msg = rolledOverToFiscalYear.HasValue
+            ? $"Cutoff '{cutoff.Label}' locked. All FY {cutoff.FiscalYear} cutoffs are now closed — FY {rolledOverToFiscalYear} cutoffs have been automatically generated!"
+            : $"Cutoff '{cutoff.Label}' has been successfully locked and finalized.";
+
         return Ok(new
         {
-            message = $"Cutoff '{cutoff.Label}' has been successfully locked and finalized.",
+            message = msg,
             cutoffId = cutoff.Id,
-            isClosed = cutoff.IsClosed
+            isClosed = cutoff.IsClosed,
+            rolledOverToFiscalYear
         });
     }
 

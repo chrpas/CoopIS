@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { Loan, LoanPenaltySummary } from "../../types";
+import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import {
   X,
   Clock,
@@ -24,6 +25,9 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
   onClose,
   onPayCutoff,
 }) => {
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
   const { data: penaltySummary, isLoading } = useQuery<LoanPenaltySummary>({
     queryKey: ["loan-penalties", loan?.id],
     queryFn: async () => {
@@ -139,7 +143,9 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {penaltySummary.penaltiesBreakdown.map((item, idx) => (
+                    {penaltySummary.penaltiesBreakdown
+                      .slice((page - 1) * pageSize, page * pageSize)
+                      .map((item, idx) => (
                       <tr
                         key={item.cutoffId}
                         className={`transition-colors ${
@@ -152,7 +158,7 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
                       >
                         <td className="py-2.5 px-3 font-semibold text-slate-900">
                           <span className="px-1.5 py-0.5 rounded bg-slate-200/80 font-mono text-[11px] mr-1">
-                            #{idx + 1}
+                            #{(page - 1) * pageSize + idx + 1}
                           </span>
                           {item.cutoffLabel}
                         </td>
@@ -213,6 +219,14 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
                     ))}
                   </tbody>
                 </table>
+                <TablePagination
+                  page={page}
+                  pageSize={pageSize}
+                  totalItems={penaltySummary.penaltiesBreakdown.length}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  itemLabel="cutoffs"
+                />
               </div>
             </>
           )}

@@ -65,6 +65,7 @@ builder.Services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddScoped<IMemberService, MemberService>();
 builder.Services.AddScoped<IContributionService, ContributionService>();
 builder.Services.AddScoped<IAccountingService, AccountingService>();
+builder.Services.AddScoped<IFinancialPolicyService, FinancialPolicyService>();
 builder.Services.AddScoped<IDistributionService, DistributionService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddSingleton<IRemoteAccessService, NgrokRemoteAccessService>();
@@ -74,9 +75,16 @@ builder.Services.AddHostedService<RemoteAccessBackgroundService>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"message\":\"Too many login attempts. Please wait a moment and try again.\"}",
+            token);
+    };
     options.AddFixedWindowLimiter("LoginRateLimiter", opt =>
     {
-        opt.PermitLimit = 5;
+        opt.PermitLimit = 30;
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueLimit = 0;
     });

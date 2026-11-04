@@ -11,6 +11,7 @@ import { Member, MemberStatus } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { MemberModalForm } from "./MemberModalForm";
 import { MemberDeleteDialog } from "./MemberDeleteDialog";
+import { MemberDetailsDrawer } from "./MemberDetailsDrawer";
 import {
   Users,
   UserPlus,
@@ -21,6 +22,7 @@ import {
   Ban,
   Shield,
   Pencil,
+  Eye,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -43,7 +45,7 @@ export const MembersPage: React.FC = () => {
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<MemberStatus | "">("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(20);
   const [sortBy, setSortBy] = useState<string>("lastName");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
 
@@ -51,6 +53,7 @@ export const MembersPage: React.FC = () => {
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
+  const [selectedMemberIdForProfile, setSelectedMemberIdForProfile] = useState<string | null>(null);
 
   // Fetch paginated member directory
   const { data: pagedData, isLoading } = useQuery({
@@ -304,7 +307,14 @@ export const MembersPage: React.FC = () => {
         header: () => <span className="text-right block">Actions</span>,
         cell: ({ row }) => (
           <div className="flex items-center justify-end gap-1.5">
-            {isAdmin ? (
+            <button
+              onClick={() => setSelectedMemberIdForProfile(row.original.id)}
+              className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+              title="View Contact & Account"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            {isAdmin && (
               <>
                 <button
                   onClick={() => setMemberToEdit(row.original)}
@@ -321,8 +331,6 @@ export const MembersPage: React.FC = () => {
                   <Ban className="w-4 h-4" />
                 </button>
               </>
-            ) : (
-              <span className="text-xs text-slate-400 italic">View only</span>
             )}
           </div>
         ),
@@ -541,6 +549,8 @@ export const MembersPage: React.FC = () => {
               >
                 <option value={10}>10</option>
                 <option value={20}>20</option>
+                <option value={30}>30</option>
+                <option value={40}>40</option>
                 <option value={50}>50</option>
               </select>
               <span>per page</span>
@@ -607,6 +617,22 @@ export const MembersPage: React.FC = () => {
         member={memberToDelete}
         isOpen={Boolean(memberToDelete)}
         onClose={() => setMemberToDelete(null)}
+      />
+
+      {/* Drawer: Contact & Account Details */}
+      <MemberDetailsDrawer
+        memberId={selectedMemberIdForProfile}
+        isOpen={Boolean(selectedMemberIdForProfile)}
+        onClose={() => setSelectedMemberIdForProfile(null)}
+        mode="profile"
+        onEdit={(m) => {
+          setSelectedMemberIdForProfile(null);
+          setMemberToEdit(m);
+        }}
+        onRequestDelete={(m) => {
+          setSelectedMemberIdForProfile(null);
+          setMemberToDelete(m);
+        }}
       />
     </div>
   );

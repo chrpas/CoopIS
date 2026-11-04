@@ -16,10 +16,12 @@ namespace CoopIS.Infrastructure.Services;
 public class DistributionService : IDistributionService
 {
     private readonly AppDbContext _context;
+    private readonly IFinancialPolicyService _financialPolicyService;
 
-    public DistributionService(AppDbContext context)
+    public DistributionService(AppDbContext context, IFinancialPolicyService financialPolicyService)
     {
         _context = context;
+        _financialPolicyService = financialPolicyService;
     }
 
     public async Task<DistributionPreviewDto> GetPreviewAsync(int fiscalYear, CancellationToken cancellationToken = default)
@@ -59,13 +61,21 @@ public class DistributionService : IDistributionService
             totalDistributableInterest = existingDist.TotalInterestIncome;
         }
 
-        // 2. Pool Partitions
-        // General Dividend Pool = Total Distributable Interest * 0.65m (65%)
-        // Patronage Refund Pool = Total Distributable Interest * 0.30m (30%)
-        // Management / Honoraria Pool = Total Distributable Interest * 0.05m (5%)
-        decimal dividendPool = Math.Round(totalDistributableInterest * 0.65m, 2);
-        decimal patronagePool = Math.Round(totalDistributableInterest * 0.30m, 2);
-        decimal managementPool = Math.Round(totalDistributableInterest * 0.05m, 2);
+        // 2. Pool Partitions (resolved from effective fiscal year policy; mid-year changes only apply to future years)
+        var effectiveWeights = await _financialPolicyService.GetEffectiveDistributionWeightsAsync(fiscalYear, cancellationToken);
+        decimal divWeight = effectiveWeights.DividendWeightPercent / 100m;
+        decimal patWeight = effectiveWeights.PatronageWeightPercent / 100m;
+        decimal mgmtWeight = effectiveWeights.ManagementWeightPercent / 100m;
+
+        decimal dividendPool = existingDist != null && existingDist.IsFinalized
+            ? existingDist.DividendPool
+            : Math.Round(totalDistributableInterest * divWeight, 2);
+        decimal patronagePool = existingDist != null && existingDist.IsFinalized
+            ? existingDist.PatronagePool
+            : Math.Round(totalDistributableInterest * patWeight, 2);
+        decimal managementPool = existingDist != null && existingDist.IsFinalized
+            ? existingDist.ManagementPool
+            : Math.Round(totalDistributableInterest * mgmtWeight, 2);
 
         // 3. Member Contributions & Loans Borrowed
         var members = await _context.Members
@@ -146,7 +156,10 @@ public class DistributionService : IDistributionService
             borrowingCount,
             existingDist?.IsFinalized ?? false,
             existingDist?.FinalizedAt,
-            allocations
+            allocations,
+            effectiveWeights.DividendWeightPercent,
+            effectiveWeights.PatronageWeightPercent,
+            effectiveWeights.ManagementWeightPercent
         );
     }
 
@@ -244,6 +257,17 @@ public class DistributionService : IDistributionService
         foreach (var c in cutoffs)
         {
             c.IsClosed = true;
+        }
+
+        // Automatically generate next fiscal year's 24 semi-monthly cutoff periods if they do not exist yet
+        int nextFiscalYear = fiscalYear + 1;
+        bool hasNextYearCutoffs = await _context.CutoffPeriods
+            .AnyAsync(c => c.FiscalYear == nextFiscalYear, cancellationToken);
+
+        if (!hasNextYearCutoffs)
+        {
+            var nextYearCutoffs = DbInitializer.BuildCutoffPeriodsForYear(nextFiscalYear);
+            _context.CutoffPeriods.AddRange(nextYearCutoffs);
         }
 
         await _context.SaveChangesAsync(cancellationToken);
