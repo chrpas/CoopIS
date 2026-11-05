@@ -112,22 +112,22 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="relative bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="relative bg-white rounded-2xl max-w-lg w-full p-4 sm:p-6 shadow-2xl border border-slate-200">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100 shrink-0">
               <UserPlus className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 tracking-tight">Create Operator Account</h3>
-              <p className="text-xs text-slate-500">Register a new system user with assigned role & credentials</p>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate">Create Operator Account</h3>
+              <p className="text-xs text-slate-500 truncate">Register a new system user with assigned role & credentials</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors shrink-0 ml-2"
           >
             <X className="w-5 h-5" />
           </button>
@@ -186,7 +186,7 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
               Access Role <span className="text-rose-500">*</span>
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div
                 onClick={() => setRole("User")}
                 className={`p-3.5 rounded-xl border cursor-pointer transition-all ${

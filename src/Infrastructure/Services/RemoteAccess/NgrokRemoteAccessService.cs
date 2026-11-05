@@ -64,14 +64,20 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
         {
             await RefreshCachedSettingsAsync(cancellationToken);
 
-            var activePublicUrl = await FetchNgrokPublicUrlAsync(cancellationToken);
+            var localPort = GetLocalServerPort();
+            _localAddress = $"http://localhost:{localPort}";
+
+            var (activePublicUrl, activeAddr) = await FetchNgrokTunnelInfoAsync(cancellationToken);
             if (!string.IsNullOrEmpty(activePublicUrl))
             {
                 _state = RemoteAccessStatusState.Running;
                 _publicUrl = activePublicUrl;
-                if (string.IsNullOrEmpty(_localAddress))
-                    _localAddress = $"http://localhost:{GetLocalServerPort()}";
                 _errorMessage = null;
+
+                if (!string.IsNullOrEmpty(activeAddr) && !activeAddr.Contains(localPort.ToString()))
+                {
+                    _logger.LogWarning("[RemoteAccess] Running ngrok tunnel targets {ActiveAddr}, but web service is active on {LocalPort}.", activeAddr, localPort);
+                }
             }
             else if (_ngrokProcess == null || _ngrokProcess.HasExited)
             {
@@ -143,17 +149,28 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
         {
             await RefreshCachedSettingsAsync(cancellationToken);
 
+            var localPort = GetLocalServerPort();
+            _localAddress = $"http://localhost:{localPort}";
+
             // Check if ngrok is already running (e.g. externally via CLI)
-            var existingPublicUrl = await FetchNgrokPublicUrlAsync(cancellationToken);
+            var (existingPublicUrl, existingAddr) = await FetchNgrokTunnelInfoAsync(cancellationToken);
             if (!string.IsNullOrEmpty(existingPublicUrl))
             {
-                _state = RemoteAccessStatusState.Running;
-                _publicUrl = existingPublicUrl;
-                _localAddress = $"http://localhost:{GetLocalServerPort()}";
-                _startedAt ??= DateTime.UtcNow;
-                _errorMessage = null;
-                _logger.LogInformation("[RemoteAccess] Active ngrok tunnel discovered. Public URL: {PublicUrl}", _publicUrl);
-                return BuildStatusDto();
+                if (!string.IsNullOrEmpty(existingAddr) && !existingAddr.Contains(localPort.ToString()))
+                {
+                    _logger.LogInformation("[RemoteAccess] Stale ngrok tunnel discovered targeting {ExistingAddr}, but active service is on port {LocalPort}. Restarting tunnel...",
+                        existingAddr, localPort);
+                    StopProcessInternal();
+                }
+                else
+                {
+                    _state = RemoteAccessStatusState.Running;
+                    _publicUrl = existingPublicUrl;
+                    _startedAt ??= DateTime.UtcNow;
+                    _errorMessage = null;
+                    _logger.LogInformation("[RemoteAccess] Active ngrok tunnel discovered. Public URL: {PublicUrl} -> {LocalAddress}", _publicUrl, _localAddress);
+                    return BuildStatusDto();
+                }
             }
 
             if (_state == RemoteAccessStatusState.Running &&
@@ -178,15 +195,12 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
             if (!string.IsNullOrWhiteSpace(_authtoken))
                 ConfigureAuthtoken(path, _authtoken);
 
-            var localPort = GetLocalServerPort();
-            _localAddress = $"http://localhost:{localPort}";
-
             _logger.LogInformation("[RemoteAccess] Starting ngrok process targeting {LocalAddress}...", _localAddress);
 
             var psi = new ProcessStartInfo
             {
                 FileName = path,
-                Arguments = $"http {localPort}",
+                Arguments = $"http {localPort} --host-header=rewrite",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -219,7 +233,7 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
                     return BuildStatusDto();
                 }
 
-                publicUrl = await FetchNgrokPublicUrlAsync(cancellationToken);
+                (publicUrl, _) = await FetchNgrokTunnelInfoAsync(cancellationToken);
                 if (!string.IsNullOrEmpty(publicUrl)) break;
             }
 
@@ -401,10 +415,9 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
 
     private void StopProcessInternal()
     {
-        if (_ngrokProcess is null) return;
         try
         {
-            if (!_ngrokProcess.HasExited)
+            if (_ngrokProcess is not null && !_ngrokProcess.HasExited)
             {
                 _ngrokProcess.Kill(entireProcessTree: true);
                 _ngrokProcess.WaitForExit(2000);
@@ -416,13 +429,58 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
         }
         finally
         {
-            _ngrokProcess.Dispose();
+            _ngrokProcess?.Dispose();
             _ngrokProcess = null;
         }
+
+        // Also terminate any stray/orphaned ngrok processes to ensure clean restart
+        try
+        {
+            foreach (var proc in Process.GetProcessesByName("ngrok"))
+            {
+                try
+                {
+                    proc.Kill(entireProcessTree: true);
+                    proc.WaitForExit(1000);
+                }
+                catch { }
+                finally
+                {
+                    proc.Dispose();
+                }
+            }
+        }
+        catch { }
     }
 
-    private RemoteAccessStatusDto BuildStatusDto() =>
-        new(_state, _publicUrl, _localAddress ?? $"http://localhost:{GetLocalServerPort()}", _startedAt, _errorMessage);
+    private RemoteAccessStatusDto BuildStatusDto()
+    {
+        var port = GetLocalServerPort();
+        var lanIp = GetLocalNetworkIp();
+        var lanAddress = !string.IsNullOrEmpty(lanIp) ? $"http://{lanIp}:{port}" : null;
+        return new(_state, _publicUrl, _localAddress ?? $"http://localhost:{port}", _startedAt, _errorMessage, lanAddress);
+    }
+
+    private static string? GetLocalNetworkIp()
+    {
+        try
+        {
+            var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    var s = ip.ToString();
+                    if (!s.StartsWith("127.") && !s.StartsWith("169.254.") && !s.StartsWith("172."))
+                    {
+                        return s;
+                    }
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
 
     private RemoteAccessSettingsDto BuildSettingsDto()
     {
@@ -521,7 +579,7 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
         }
     }
 
-    private async Task<string?> FetchNgrokPublicUrlAsync(CancellationToken ct)
+    private async Task<(string? PublicUrl, string? Addr)> FetchNgrokTunnelInfoAsync(CancellationToken ct)
     {
         try
         {
@@ -529,22 +587,27 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
                 "http://127.0.0.1:4040/api/tunnels", ct);
             var httpsTunnel = response?.Tunnels?.FirstOrDefault(
                 t => t.Proto == "https" || t.PublicUrl?.StartsWith("https") == true);
-            return (httpsTunnel ?? response?.Tunnels?.FirstOrDefault())?.PublicUrl;
+            var selected = httpsTunnel ?? response?.Tunnels?.FirstOrDefault();
+            return (selected?.PublicUrl, selected?.Config?.Addr);
         }
-        catch { return null; }
+        catch { return (null, null); }
     }
 
     private int GetLocalServerPort()
     {
-        // In local development, forward port 5173 (Vite) so remote users land directly on the web app UI
-        try
+        // Probe active Vite frontend ports first (5173, 5174, 5175, 3000)
+        int[] frontendPorts = [5173, 5174, 5175, 3000];
+        foreach (var port in frontendPorts)
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
-            var response = client.GetAsync("http://localhost:5173").GetAwaiter().GetResult();
-            if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                return 5173;
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromMilliseconds(500) };
+                var response = client.GetAsync($"http://127.0.0.1:{port}").GetAwaiter().GetResult();
+                if (response.IsSuccessStatusCode || response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return port;
+            }
+            catch { }
         }
-        catch { }
 
         // Fallback to API port
         var urls = _configuration["ASPNETCORE_URLS"] ?? _configuration["Urls"];
@@ -586,5 +649,14 @@ public class NgrokRemoteAccessService : IRemoteAccessService, IDisposable
 
         [JsonPropertyName("proto")]
         public string? Proto { get; set; }
+
+        [JsonPropertyName("config")]
+        public NgrokTunnelConfig? Config { get; set; }
+    }
+
+    private class NgrokTunnelConfig
+    {
+        [JsonPropertyName("addr")]
+        public string? Addr { get; set; }
     }
 }

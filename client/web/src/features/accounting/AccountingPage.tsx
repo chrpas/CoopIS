@@ -251,20 +251,20 @@ export const AccountingPage: React.FC = () => {
       {/* 1. Header & Actions */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               General Ledger & Fund Reconciliation
             </h2>
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
               Admin Only
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Real-time Statement of Financial Position, Bank Reconciliation, and Total Fund verification.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
           <button
             onClick={() => {
               refetchBS();
@@ -434,8 +434,8 @@ export const AccountingPage: React.FC = () => {
       </div>
 
       {/* 3. Navigation Tabs */}
-      <div className="flex items-center justify-between border-b border-slate-200">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between border-b border-slate-200 overflow-x-auto whitespace-nowrap">
+        <div className="flex items-center gap-4 min-w-max">
           <button
             onClick={() => setActiveTab("balance-sheet")}
             className={`pb-3 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${
@@ -958,27 +958,27 @@ export const AccountingPage: React.FC = () => {
 
       {/* 5. Bank Reconciliation Entry Modal */}
       {isReconModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                   <Landmark className="w-5 h-5" />
                 </div>
-                <div>
-                  <h3 className="font-bold text-slate-900 text-base">Post Bank Statement Reconciliation</h3>
-                  <p className="text-xs text-slate-500">Record statement cash balance, gross interest, and tax.</p>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">Post Bank Statement Reconciliation</h3>
+                  <p className="text-xs text-slate-500 truncate">Record statement cash balance, gross interest, and tax.</p>
                 </div>
               </div>
               <button
                 onClick={() => setIsReconModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg shrink-0 ml-2"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleReconSubmit} className="p-6 space-y-4 text-sm">
+            <form onSubmit={handleReconSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-sm">
               {unreconciledCutoffs.length === 0 ? (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-medium flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />

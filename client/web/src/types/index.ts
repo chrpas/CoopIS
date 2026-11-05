@@ -46,6 +46,7 @@ export interface RemoteAccessStatus {
   state: RemoteAccessStatusState;
   publicUrl?: string | null;
   localAddress?: string | null;
+  lanAddress?: string | null;
   startedAt?: string | null;
   errorMessage?: string | null;
 }

@@ -132,13 +132,13 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
 
         <div className="relative bg-white rounded-2xl max-w-5xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh] z-10 transition-all">
           {/* Modal Header */}
-          <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
                 <Calendar className="w-5 h-5" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-bold text-base text-white">
                     Loan Amortization Schedule
                   </h3>
@@ -146,7 +146,7 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                     {loan.loanReference}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-400 mt-0.5 truncate">
                   Borrower:{" "}
                   <span className="font-semibold text-slate-200">
                     {loan.memberName}
@@ -156,7 +156,7 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => refetch()}
@@ -181,7 +181,7 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
             </div>
           </div>
 
-          <div className="p-6 space-y-5 overflow-y-auto">
+          <div className="p-4 sm:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
             {/* Top Summary Metrics: Total Principal, Remaining Balance, Total Penalties Collected */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
               {/* Total Principal */}

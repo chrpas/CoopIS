@@ -378,22 +378,22 @@ export const LoansPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               Loan Management & Member Portfolios
             </h2>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
               Cooperative Lending Service
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Distinct active borrowers directory. Expand any member row to inspect their complete loan portfolio and payment history.
           </p>
         </div>
 
         <button
           onClick={() => setShowWizard(true)}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-sm transition-all hover:shadow-md cursor-pointer"
+          className="w-full sm:w-auto justify-center inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-sm transition-all hover:shadow-md cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
           Originate Loan (Wizard)

@@ -160,17 +160,17 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
   if (!isOpen || !loan || !cutoffItem) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh]">
         {/* Modal Header */}
-        <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 bg-slate-900 text-white flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
               <CreditCard className="w-4 h-4" />
             </div>
-            <div>
-              <h3 className="font-bold text-sm">Record Cutoff Repayment</h3>
-              <p className="text-xs text-slate-300">
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm truncate">Record Cutoff Repayment</h3>
+              <p className="text-xs text-slate-300 truncate">
                 Loan {loan.loanReference} • {loan.memberName}
               </p>
             </div>
@@ -178,7 +178,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
           <button
             onClick={onClose}
             type="button"
-            className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer shrink-0 ml-2"
             aria-label="Close"
           >
             <X className="w-5 h-5" />
@@ -186,7 +186,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
         </div>
 
         {/* Modal Form */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-4 text-xs">
           {errorMessage && (
             <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -301,7 +301,7 @@ export const RecordRepaymentModal: React.FC<RecordRepaymentModalProps> = ({
             <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px] mb-1.5">
               Payment Channel
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {[
                 { id: "CASH" as PaymentChannel, label: "Cash Deposit", icon: Banknote },
                 { id: "PAYROLL_DEDUCTION" as PaymentChannel, label: "Payroll Deduction", icon: Building2 },

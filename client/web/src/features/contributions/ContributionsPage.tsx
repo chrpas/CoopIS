@@ -402,11 +402,11 @@ export const ContributionsPage: React.FC = () => {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               Capital Build-Up & Share Contributions
             </h2>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Semi-monthly member payroll deductions, share capital postings, and ledger reconciliation.
           </p>
         </div>
@@ -437,9 +437,9 @@ export const ContributionsPage: React.FC = () => {
           </div>
 
           {/* Cutoff Selector */}
-          <div className="flex items-center gap-2 bg-white border border-slate-200 px-3.5 py-1.5 rounded-xl shadow-xs">
-            <Calendar className="w-4 h-4 text-emerald-600" />
-            <label htmlFor="cutoff-select" className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+          <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 sm:px-3.5 py-1.5 rounded-xl shadow-xs max-w-full">
+            <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />
+            <label htmlFor="cutoff-select" className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">
               Cutoff:
             </label>
             <select
@@ -447,7 +447,7 @@ export const ContributionsPage: React.FC = () => {
               value={selectedCutoffId}
               onChange={(e) => setSelectedCutoffId(e.target.value)}
               disabled={isLoadingCutoffs}
-              className="text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer max-w-[200px] sm:max-w-none truncate"
             >
               {isLoadingCutoffs ? (
                 <option>Loading cutoffs...</option>
@@ -460,11 +460,11 @@ export const ContributionsPage: React.FC = () => {
               )}
             </select>
             {selectedCutoff?.isClosed ? (
-              <span className="flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 shrink-0">
                 <Lock className="w-3 h-3" /> Closed
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shrink-0">
                 <Unlock className="w-3 h-3" /> Open
               </span>
             )}

@@ -454,11 +454,11 @@ export const SettingsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-emerald-400 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-emerald-400 flex items-center justify-center shadow-md shrink-0">
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">System Administration & Settings</h1>
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">System Administration & Settings</h1>
               <p className="text-xs text-slate-500">
                 Manage operator accounts, security policies, and financial engine rules
               </p>
@@ -469,7 +469,7 @@ export const SettingsPage: React.FC = () => {
         {activeTab === "users" && (
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-semibold rounded-xl shadow-md hover:shadow-lg transition-all"
+            className="w-full sm:w-auto justify-center inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-semibold rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
             <span>Create New Operator</span>
@@ -504,10 +504,10 @@ export const SettingsPage: React.FC = () => {
       )}
 
       {/* Settings Navigation Tabs */}
-      <div className="border-b border-slate-200 flex gap-2">
+      <div className="border-b border-slate-200 flex gap-2 overflow-x-auto whitespace-nowrap">
         <button
           onClick={() => setActiveTab("users")}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all shrink-0 ${
             activeTab === "users"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
@@ -522,7 +522,7 @@ export const SettingsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab("general")}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all shrink-0 ${
             activeTab === "general"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
@@ -534,7 +534,7 @@ export const SettingsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab("security")}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all shrink-0 ${
             activeTab === "security"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
@@ -546,7 +546,7 @@ export const SettingsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab("remote-access")}
-          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all ${
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all shrink-0 ${
             activeTab === "remote-access"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"

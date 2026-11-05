@@ -221,15 +221,15 @@ export const DistributionPage: React.FC = () => {
       {/* 1. Header & Fiscal Year Selector */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               Fiscal Year-End Surplus Distribution & Patronage Refund
             </h2>
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
               Admin Only
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Statutory net surplus partitioning: {preview?.dividendWeightPercent ?? 65}% Dividend,{" "}
             {preview?.patronageWeightPercent ?? 30}% Patronage Refund,{" "}
             {preview?.managementWeightPercent ?? 5}% Management Reserve.
@@ -709,23 +709,23 @@ export const DistributionPage: React.FC = () => {
 
       {/* 4. INDIVIDUAL STATEMENT OF ACCOUNT (SOA) PRINTABLE MODAL */}
       {selectedSoaMemberId && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-8">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-200 overflow-hidden my-4 sm:my-8">
             {/* Top Modal Controls (Hidden in Print) */}
-            <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between print:hidden">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+            <div className="p-3 sm:p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between print:hidden">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-600 truncate mr-2">
                 Official Statement of Account & Patronage Voucher
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={handlePrintSoa}
-                  className="flex items-center gap-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 px-3.5 py-1.5 rounded-xl transition-colors"
+                  className="flex items-center gap-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer"
                 >
-                  <Printer className="w-3.5 h-3.5" /> Print / Save as PDF
+                  <Printer className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Print / Save as PDF</span><span className="sm:hidden">Print</span>
                 </button>
                 <button
                   onClick={() => setSelectedSoaMemberId(null)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -739,29 +739,29 @@ export const DistributionPage: React.FC = () => {
                 <p className="text-xs text-slate-500 font-medium">Generating official member statement...</p>
               </div>
             ) : soaData ? (
-              <div id="soa-printable-voucher" className="p-8 text-slate-900 space-y-6">
+              <div id="soa-printable-voucher" className="p-4 sm:p-8 text-slate-900 space-y-6">
                 {/* Header */}
                 <div className="text-center border-b pb-4 border-slate-200">
-                  <div className="font-extrabold text-xl tracking-tight uppercase text-emerald-800">
+                  <div className="font-extrabold text-lg sm:text-xl tracking-tight uppercase text-emerald-800">
                     Cooperative Information System (CoopIS)
                   </div>
                   <div className="text-xs text-slate-500">
                     Republic of the Philippines • Cooperative Financial Board
                   </div>
-                  <div className="text-sm font-bold mt-2 uppercase tracking-wider text-slate-800">
+                  <div className="text-xs sm:text-sm font-bold mt-2 uppercase tracking-wider text-slate-800">
                     Annual Statement of Account & Patronage Certificate
                   </div>
                   <div className="text-xs text-slate-400">Fiscal Year {soaData.fiscalYear}</div>
                 </div>
 
                 {/* Member Profile */}
-                <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-xs bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <div>
                     <span className="text-slate-400 uppercase font-semibold">Member Name:</span>
                     <div className="font-bold text-sm text-slate-900">{soaData.memberName}</div>
                     <div className="font-mono text-slate-500">{soaData.memberCode}</div>
                   </div>
-                  <div className="text-right">
+                  <div className="sm:text-right">
                     <span className="text-slate-400 uppercase font-semibold">Issue Date:</span>
                     <div className="font-medium text-slate-800">
                       {new Date(soaData.asOfDate).toLocaleDateString("en-US", {
@@ -781,7 +781,7 @@ export const DistributionPage: React.FC = () => {
                   <div className="bg-slate-100 px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-700">
                     1. Surplus & Patronage Entitlement
                   </div>
-                  <div className="p-4 grid grid-cols-3 gap-4 text-center text-xs">
+                  <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center text-xs">
                     <div className="p-3 bg-slate-50 rounded-lg">
                       <div className="text-slate-500 font-medium">Contribution Capital</div>
                       <div className="font-mono font-bold text-sm text-slate-900 mt-1">
@@ -811,7 +811,7 @@ export const DistributionPage: React.FC = () => {
                 </div>
 
                 {/* Total Payout Summary */}
-                <div className="bg-slate-900 text-white p-4 rounded-xl flex items-center justify-between">
+                <div className="bg-slate-900 text-white p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
                       Total Net Credited Savings
@@ -820,13 +820,13 @@ export const DistributionPage: React.FC = () => {
                       Capital (₱{soaData.totalContributions.toLocaleString()}) + Surplus (₱{soaData.totalSurplusEarned.toLocaleString()})
                     </div>
                   </div>
-                  <div className="text-2xl font-black font-mono text-emerald-400">
+                  <div className="text-xl sm:text-2xl font-black font-mono text-emerald-400">
                     ₱{soaData.netSavingsCredited.toLocaleString("en-US", { minimumFractionDigits: 2 })}
                   </div>
                 </div>
 
                 {/* Authorized Signatures */}
-                <div className="pt-8 grid grid-cols-2 gap-8 text-center text-xs border-t border-slate-200">
+                <div className="pt-6 sm:pt-8 grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 text-center text-xs border-t border-slate-200">
                   <div>
                     <div className="border-b border-slate-400 w-44 mx-auto mb-1"></div>
                     <div className="font-bold text-slate-900">Cooperative Treasurer</div>

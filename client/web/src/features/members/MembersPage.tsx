@@ -352,8 +352,8 @@ export const MembersPage: React.FC = () => {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Member Registry</h2>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Member Registry</h2>
             <span
               className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${
                 isAdmin
@@ -364,7 +364,7 @@ export const MembersPage: React.FC = () => {
               {isAdmin ? "Admin: Full CRUD Access" : "User: Read-Only Directory"}
             </span>
           </div>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             General assembly directory, share capital standing, member code registry, and loan eligibility.
           </p>
         </div>
@@ -376,7 +376,7 @@ export const MembersPage: React.FC = () => {
                 setMemberToEdit(null);
                 setIsEnrollModalOpen(true);
               }}
-              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2"
+              className="w-full sm:w-auto justify-center px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm hover:shadow-md transition-all flex items-center gap-2 cursor-pointer"
             >
               <UserPlus className="w-4 h-4" />
               <span>Enroll New Member</span>

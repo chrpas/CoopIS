@@ -28,16 +28,16 @@ export const DashboardPage: React.FC = () => {
   const totalRepayments = loans.reduce((acc, l) => acc + Number(l.totalRepayments || 0), 0);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Executive Dashboard</h2>
-        <p className="text-sm text-slate-500 mt-1">
+        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">Executive Dashboard</h2>
+        <p className="text-xs sm:text-sm text-slate-500 mt-1">
           Fiscal Year 2026 Overview, Member Capital Build-up, and Loan Portfolio Analytics
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+        <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Active Members
@@ -46,14 +46,14 @@ export const DashboardPage: React.FC = () => {
               <Users className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-slate-900">{activeMembers}</span>
+          <div className="mt-3 sm:mt-4 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900">{activeMembers}</span>
             <span className="text-xs text-emerald-600 font-medium">/{members.length} registered</span>
           </div>
-          <div className="mt-3 text-xs text-slate-500">100% good standing status</div>
+          <div className="mt-2 sm:mt-3 text-xs text-slate-500">100% good standing status</div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+        <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Total Loan Portfolio
@@ -62,15 +62,15 @@ export const DashboardPage: React.FC = () => {
               <HandCoins className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-slate-900">
+          <div className="mt-3 sm:mt-4 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">
               ₱{totalLoanPrincipal.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="mt-3 text-xs text-slate-500">{loans.length} active and issued loans</div>
+          <div className="mt-2 sm:mt-3 text-xs text-slate-500">{loans.length} active and issued loans</div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+        <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Interest Earned
@@ -79,15 +79,15 @@ export const DashboardPage: React.FC = () => {
               <Scale className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-slate-900">
+          <div className="mt-3 sm:mt-4 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">
               ₱{totalInterestEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="mt-3 text-xs text-indigo-600 font-medium">Feed into surplus pool</div>
+          <div className="mt-2 sm:mt-3 text-xs text-indigo-600 font-medium">Feed into surplus pool</div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-xs">
+        <div className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Collected Repayments
@@ -96,17 +96,17 @@ export const DashboardPage: React.FC = () => {
               <Wallet className="w-5 h-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-slate-900">
+          <div className="mt-3 sm:mt-4 flex items-baseline gap-2">
+            <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 truncate">
               ₱{totalRepayments.toLocaleString("en-US", { minimumFractionDigits: 2 })}
             </span>
           </div>
-          <div className="mt-3 text-xs text-emerald-600 font-medium">Payroll deduction cutoffs</div>
+          <div className="mt-2 sm:mt-3 text-xs text-emerald-600 font-medium">Payroll deduction cutoffs</div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6">
           <div className="flex items-center justify-between mb-5">
             <div>
               <h3 className="text-base font-bold text-slate-900">Recent Loan Disbursals</h3>
@@ -154,7 +154,7 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 flex flex-col justify-between">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-6 flex flex-col justify-between">
           <div>
             <h3 className="text-base font-bold text-slate-900 mb-2">Statutory Distribution Rules</h3>
             <p className="text-xs text-slate-500 mb-5">

@@ -113,37 +113,37 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-100 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-2xl max-w-3xl w-full shadow-2xl border border-slate-100 overflow-hidden my-4 sm:my-8 animate-in fade-in zoom-in-95 duration-200">
         {/* Wizard Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 px-6 py-5 text-white flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400">
-              <Calculator className="w-6 h-6" />
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 px-4 sm:px-6 py-4 sm:py-5 text-white flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 shrink-0">
+              <Calculator className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-bold">Loan Origination Wizard</h3>
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base sm:text-lg font-bold">Loan Origination Wizard</h3>
+                <span className="text-[10px] sm:text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   {activeInterestPercent.toFixed(2)}% Upfront Policy
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-0.5">
+              <p className="text-xs text-slate-300 mt-0.5 truncate">
                 Automated term tiering, upfront interest deduction, and bi-monthly cutoff scheduling
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors"
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0 ml-2"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Wizard Stepper Bar */}
-        <div className="px-6 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs font-medium text-slate-500">
-          <div className="flex items-center gap-6">
+        <div className="px-4 sm:px-6 py-3 bg-slate-50 border-b border-slate-200 overflow-x-auto whitespace-nowrap text-xs font-medium text-slate-500">
+          <div className="flex items-center gap-3 sm:gap-6 min-w-max">
             <button
               onClick={() => setStep(1)}
               className={`flex items-center gap-2 transition-colors ${
@@ -216,7 +216,7 @@ export const LoanOriginationWizard: React.FC<LoanOriginationWizardProps> = ({
         )}
 
         {/* Wizard Content Body */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {/* STEP 1: BORROWER SELECTION */}
           {step === 1 && (
             <div className="space-y-6">

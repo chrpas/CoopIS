@@ -17,7 +17,8 @@ public record RemoteAccessStatusDto(
     string? PublicUrl,
     string? LocalAddress,
     DateTime? StartedAt,
-    string? ErrorMessage
+    string? ErrorMessage,
+    string? LanAddress = null
 );
 
 public record RemoteAccessSettingsDto(

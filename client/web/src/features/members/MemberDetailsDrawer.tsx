@@ -340,10 +340,10 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/50 backdrop-blur-xs transition-opacity duration-300">
       <div className="absolute inset-0" onClick={onClose} />
 
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10 pointer-events-none">
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10 pointer-events-none">
         <div className="w-screen max-w-2xl bg-white shadow-2xl border-l border-slate-200 flex flex-col pointer-events-auto transform transition-transform duration-300 ease-in-out">
           {/* Header */}
-          <div className="px-6 py-5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+          <div className="px-4 sm:px-6 py-4 sm:py-5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-lg">
                 {member
