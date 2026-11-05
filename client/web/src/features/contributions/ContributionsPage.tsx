@@ -273,6 +273,31 @@ export const ContributionsPage: React.FC = () => {
         },
       },
       {
+        accessorKey: "totalShareCapital",
+        header: ({ column }) => (
+          <div className="text-right">
+            <button
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+              className="inline-flex items-center gap-1 font-semibold text-xs tracking-wider uppercase text-slate-600 hover:text-slate-900"
+            >
+              Total Share Capital
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ),
+        cell: ({ row }) => {
+          const totalCapital = Number(row.original.totalShareCapital) || 0;
+          return (
+            <div className="text-right">
+              <span className="font-mono font-bold text-sm text-slate-900">
+                ₱{totalCapital.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              </span>
+              <div className="text-[10px] text-slate-400">Cumulative</div>
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: "recordedAt",
         header: () => <div className="text-right">Ledger Status</div>,
         cell: ({ row }) => {

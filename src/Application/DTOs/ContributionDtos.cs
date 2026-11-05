@@ -22,7 +22,8 @@ public record CutoffMemberContributionDto(
     Guid? ContributionId,
     decimal Amount,
     PaymentChannel PaymentChannel,
-    DateTime? RecordedAt
+    DateTime? RecordedAt,
+    decimal TotalShareCapital = 0.00m
 );
 
 public record BatchContributionResultDto(

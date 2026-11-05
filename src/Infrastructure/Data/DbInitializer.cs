@@ -196,9 +196,10 @@ public static class DbInitializer
 
         // 3. Check if we need to replace data with spreadsheet data
         var existingMemberCount = await context.Members.CountAsync();
+        var existingLoanCount = await context.Loans.CountAsync();
         var hasSampleMembers = await context.Members.AnyAsync(m => m.MemberCode == "MEM-OFFICER-001" || m.Email.Contains("coop.example.com"));
 
-        if (hasSampleMembers || existingMemberCount < 28)
+        if (hasSampleMembers || existingMemberCount < 28 || existingLoanCount == 0)
         {
             logger.LogInformation("Clearing old sample transactional & member data while preserving Settings & Users...");
 
@@ -282,8 +283,8 @@ public static class DbInitializer
 
             // 6. Seed All 64 Loans and Installment Repayments
             logger.LogInformation("Seeding {Count} loans and repayment installments from COOP-2026-3.xlsx...", seedData.Loans.Count);
-            var adminUser = await context.Users.FirstOrDefaultAsync(u => u.Role == UserRole.Admin);
-            var approverId = adminUser?.Id ?? memberEntities.Values.First().Id;
+            var firstMemberId = memberEntities.Values.First().Id;
+            var approverId = firstMemberId;
 
             var loanEntities = new List<Loan>();
             var repaymentEntities = new List<LoanRepayment>();

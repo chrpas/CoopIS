@@ -32,32 +32,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
 
-// 2. Database Connection (PostgreSQL with graceful In-Memory fallback & URI parsing)
+// 2. Database Connection (PostgreSQL - strictly enforced for data integrity)
 string connectionString = ResolveConnectionString(builder.Configuration);
 
-bool isPostgresAvailable = false;
-try
-{
-    using var conn = new Npgsql.NpgsqlConnection(connectionString);
-    conn.Open();
-    conn.Close();
-    isPostgresAvailable = true;
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"[Database Notice] PostgreSQL not reachable ({ex.Message}). Using In-Memory database.");
-}
-
-if (isPostgresAvailable)
-{
-    builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql(connectionString));
-}
-else
-{
-    builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseInMemoryDatabase("CoopIS_Db"));
-}
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString));
 
 // 3. Application & Infrastructure Services
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
@@ -187,7 +166,8 @@ using (var scope = app.Services.CreateScope())
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to initialize or seed database.");
+        logger.LogCritical(ex, "FATAL: Failed to connect to PostgreSQL or initialize database. Application startup halted to protect data integrity.");
+        throw; // Fail-fast so the backend does not silently run in a broken state
     }
 }
 

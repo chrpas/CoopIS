@@ -148,7 +148,8 @@ coopis/
 ├── deploy/
 │   └── compose/                    # docker-compose.yml, Dockerfiles, nginx.conf
 ├── run-local.bat                   # One-click local launcher (PostgreSQL + API + Vite)
-├── dev.ps1                         # Developer start script (API + Frontend)
+├── dev.ps1                         # Developer start script (Postgres check + API + Frontend)
+├── stop-dev.ps1                    # Developer stop script (terminates API & Frontend processes)
 ├── setup.ps1                       # One-time setup & build script
 ├── CoopIS.sln                      # Visual Studio Solution
 └── README.md

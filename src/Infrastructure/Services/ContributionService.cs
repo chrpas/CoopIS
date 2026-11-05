@@ -45,10 +45,18 @@ public class ContributionService : IContributionService
             .Where(c => c.CutoffId == cutoffId)
             .ToDictionaryAsync(c => c.MemberId, cancellationToken);
 
+        var memberShareCapitals = await _context.Contributions
+            .AsNoTracking()
+            .GroupBy(c => c.MemberId)
+            .Select(g => new { MemberId = g.Key, TotalShareCapital = g.Sum(c => c.Amount) })
+            .ToDictionaryAsync(x => x.MemberId, x => x.TotalShareCapital, cancellationToken);
+
         var result = new List<CutoffMemberContributionDto>(members.Count);
 
         foreach (var member in members)
         {
+            memberShareCapitals.TryGetValue(member.Id, out var totalShareCapital);
+
             if (existingContributions.TryGetValue(member.Id, out var contribution))
             {
                 result.Add(new CutoffMemberContributionDto(
@@ -62,7 +70,8 @@ public class ContributionService : IContributionService
                     contribution.Id,
                     contribution.Amount,
                     contribution.PaymentChannel,
-                    contribution.CreatedAt
+                    contribution.CreatedAt,
+                    totalShareCapital
                 ));
             }
             else
@@ -78,7 +87,8 @@ public class ContributionService : IContributionService
                     null,
                     0.00m,
                     PaymentChannel.CASH,
-                    null
+                    null,
+                    totalShareCapital
                 ));
             }
         }

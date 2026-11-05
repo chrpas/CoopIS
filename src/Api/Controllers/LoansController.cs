@@ -29,7 +29,9 @@ public class LoansController : ControllerBase
 
     private async Task<(decimal TotalPenalties, bool AllScheduleEntriesPaid, LoanStatus EffectiveStatus)> ComputeLoanScheduleMetricsAsync(Loan loan, List<CutoffPeriod> allCutoffs)
     {
-        var repaymentsMap = loan.Repayments.ToDictionary(r => r.CutoffId);
+        var repaymentsMap = loan.Repayments
+            .GroupBy(r => r.CutoffId)
+            .ToDictionary(g => g.Key, g => g.Last());
 
         var scheduledCutoffs = allCutoffs
             .Where(c => c.CutoffDate >= loan.OriginationDate.Date)
@@ -382,7 +384,9 @@ public class LoansController : ControllerBase
             return NotFound(new { message = "Loan record not found." });
         }
 
-        var repaymentsMap = loan.Repayments.ToDictionary(r => r.CutoffId);
+        var repaymentsMap = loan.Repayments
+            .GroupBy(r => r.CutoffId)
+            .ToDictionary(g => g.Key, g => g.Last());
 
         // Fetch the scheduled cutoffs starting from loan origination date
         var scheduledCutoffs = await _context.CutoffPeriods
@@ -552,7 +556,6 @@ public class LoansController : ControllerBase
                 PaymentChannel = request.PaymentChannel ?? PaymentChannel.CASH
             };
             _context.LoanRepayments.Add(repayment);
-            loan.Repayments.Add(repayment);
         }
 
         repayment.PrincipalPaid += request.PrincipalPaid;
@@ -625,7 +628,9 @@ public class LoansController : ControllerBase
             return NotFound(new { message = "Loan record not found." });
         }
 
-        var repaymentsMap = loan.Repayments.ToDictionary(r => r.CutoffId);
+        var repaymentsMap = loan.Repayments
+            .GroupBy(r => r.CutoffId)
+            .ToDictionary(g => g.Key, g => g.Last());
 
         // Fetch the scheduled cutoffs starting from loan origination date
         var scheduledCutoffs = await _context.CutoffPeriods

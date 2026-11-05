@@ -70,7 +70,9 @@ public class AccountingService : IAccountingService
                 continue;
             }
 
-            var repaymentsMap = loan.Repayments.ToDictionary(r => r.CutoffId);
+            var repaymentsMap = loan.Repayments
+                .GroupBy(r => r.CutoffId)
+                .ToDictionary(g => g.Key, g => g.Last());
 
             var scheduledCutoffs = allCutoffs
                 .Where(c => c.CutoffDate >= loan.OriginationDate.Date)

@@ -344,12 +344,15 @@ export const AccountingPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Cash in Bank */}
+        {/* Cash in Bank (Cooperative Book Balance) */}
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-purple-300 transition-colors">
           <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-              Depository Cash In Bank
-            </span>
+            <div>
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Cash in Bank (Book Balance)
+              </span>
+              <p className="text-[10px] text-slate-400">Ledger balance derived from internal cash flows</p>
+            </div>
             <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
               <Landmark className="w-4 h-4" />
             </div>
@@ -364,7 +367,7 @@ export const AccountingPage: React.FC = () => {
             <Calendar className="w-3 h-3 text-slate-400" />
             <span>
               {fundRecon?.latestStatementDate
-                ? `Last Statement: ₱${(fundRecon.cashInBank || 0).toLocaleString("en-US", {
+                ? `Bank Statement: ₱${(fundRecon.cashInBank || 0).toLocaleString("en-US", {
                     minimumFractionDigits: 2,
                   })} (${new Date(fundRecon.latestStatementDate).toLocaleDateString("en-US", {
                     month: "short",
@@ -385,9 +388,12 @@ export const AccountingPage: React.FC = () => {
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-              Reconciliation Variance
-            </span>
+            <div>
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Reconciliation Variance
+              </span>
+              <p className="text-[10px] text-slate-400">Book Balance vs. Bank Statement</p>
+            </div>
             <div
               className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                 hasVariance ? "bg-rose-100 text-rose-600" : "bg-emerald-50 text-emerald-600"
@@ -411,7 +417,11 @@ export const AccountingPage: React.FC = () => {
             {hasVariance ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 border border-rose-300">
                 <AlertTriangle className="w-3 h-3" />
-                Discrepancy: ₱{Math.abs(fundRecon?.variance || 0).toFixed(2)}
+                Unreconciled: ₱
+                {Math.abs(fundRecon?.variance || 0).toLocaleString("en-US", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">
@@ -1032,7 +1042,14 @@ export const AccountingPage: React.FC = () => {
                   {!isBookBalanceAlreadyUsed ? (
                     <button
                       type="button"
-                      onClick={() => setCashInBankInput(projectedBookBalance.toFixed(2))}
+                      onClick={() =>
+                        setCashInBankInput(
+                          projectedBookBalance.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        )
+                      }
                       className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline cursor-pointer"
                     >
                       Use Book Balance (₱
@@ -1056,13 +1073,40 @@ export const AccountingPage: React.FC = () => {
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">₱</span>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
+                    type="text"
+                    inputMode="decimal"
                     required
                     placeholder="0.00"
                     value={cashInBankInput}
-                    onChange={(e) => setCashInBankInput(e.target.value)}
+                    onChange={(e) => {
+                      // Allow typing digits, commas, and a decimal point
+                      const val = e.target.value.replace(/[^0-9.]/g, "");
+                      const parts = val.split(".");
+                      if (parts.length > 2) return; // Prevent multiple dots
+                      if (parts.length === 2 && parts[1].length > 2) return; // Max 2 decimal places
+
+                      if (!val) {
+                        setCashInBankInput("");
+                        return;
+                      }
+
+                      // Format integer part with commas while preserving active decimal entry
+                      const intPart = parts[0] ? Number(parts[0]).toLocaleString("en-US") : "0";
+                      const formatted = parts.length > 1 ? `${intPart}.${parts[1]}` : intPart;
+                      setCashInBankInput(formatted);
+                    }}
+                    onBlur={() => {
+                      if (!cashInBankInput.trim()) return;
+                      const num = parseFloat(cashInBankInput.replace(/,/g, ""));
+                      if (!isNaN(num)) {
+                        setCashInBankInput(
+                          num.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        );
+                      }
+                    }}
                     className="w-full font-mono font-bold text-slate-900 pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
                   />
                 </div>

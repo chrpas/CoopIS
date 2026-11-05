@@ -290,6 +290,7 @@ export interface CutoffMemberContribution {
   amount: number;
   paymentChannel: PaymentChannel;
   recordedAt?: string | null;
+  totalShareCapital?: number;
 }
 
 export interface BatchContributionItem {
