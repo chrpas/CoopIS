@@ -4,6 +4,20 @@ Enterprise-grade Cooperative Financial Management & Lending Platform engineered 
 
 ---
 
+## 📖 Official Operations Wiki & Knowledge Base
+
+For complete operational walkthroughs, mathematical formulas, role permissions, and accounting principles across all functional modules, see:
+- 📑 [**CoopIS Operations & Financial Reference Wiki (`WIKI.md`)**](WIKI.md)
+- 📚 [**Modular Wiki Documentation Hub (`/docs/wiki/`)**](docs/wiki/README.md)
+  - [Chapter 1: Executive Dashboard (`/dashboard`)](docs/wiki/01-dashboard.md)
+  - [Chapter 2: Member Assembly & Registry (`/members`)](docs/wiki/02-members.md)
+  - [Chapter 3: Capital Contributions & Share Build-up (`/contributions`)](docs/wiki/03-contributions.md)
+  - [Chapter 4: Credit Management & Loan Portfolios (`/loans`)](docs/wiki/04-loans.md)
+  - [Chapter 5: General Ledger & Depository Bank Reconciliation (`/accounting`)](docs/wiki/05-accounting.md)
+  - [Chapter 6: Statutory Surplus & Patronage Distribution (`/distribution`)](docs/wiki/06-distribution.md)
+
+---
+
 ## 🌟 Key Features
 
 ### 🧭 Navigation & Table UX
