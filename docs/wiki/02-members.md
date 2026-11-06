@@ -89,3 +89,4 @@ Clicking any member's row or **View Profile** button opens a sliding drawer cont
 - **Email & Member Code Uniqueness**: Enforced via PostgreSQL unique indexes. Duplicate emails or codes are rejected with a descriptive error.
 - **Loan Pre-requisite**: A member must have an `ACTIVE` status to qualify for loan origination.
 - **Capital Accumulation**: All member share capital contributions are strictly tied to their `MemberId` foreign key and preserved across all fiscal years.
+

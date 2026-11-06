@@ -95,3 +95,4 @@ Clicking any cutoff pill displays the transaction timestamp, payment channel, OR
 - **Strict Non-Duplication**: A member can have at most **one** contribution record per cutoff period. The backend database enforces a unique composite constraint `(MemberId, CutoffId)`.
 - **Closed Cutoff Support**: Administrators can record late remittances for already-closed cutoffs if a member fell behind on payroll deduction, but cannot duplicate an existing remittance.
 - **Immediate General Ledger Sync**: Every contribution posted immediately increases **Common Share Capital** and **Cash in Bank** on the General Ledger (`/accounting`).
+

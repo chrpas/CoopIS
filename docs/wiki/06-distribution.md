@@ -111,3 +111,4 @@ At the conclusion of the fiscal year after all 24 cutoffs are closed and deposit
 
 **Q: What happens if a borrower contributed only minimal share capital?**  
 *A*: The member receives a dividend matching their contribution ratio, and a larger **Patronage Refund** reflecting their extensive borrowing activity. Both mechanisms incentivize simultaneous capital buildup and credit utilization.
+

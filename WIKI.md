@@ -151,3 +151,4 @@ The **Statutory Surplus Distribution** module automates the year-end distributio
 - Detailed Individual Wiki Chapters: [`/docs/wiki/`](docs/wiki/README.md)
 - Development Start Script: `dev.ps1`
 - Repository: [https://github.com/chrpas/CoopIS](https://github.com/chrpas/CoopIS)
+

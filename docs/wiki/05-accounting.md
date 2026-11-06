@@ -108,3 +108,4 @@ When the official depository bank statement arrives (typically at end-of-month):
 
 **Q: Why did Reconciliation Variance change to ₱0 after posting?**  
 *A*: When you post a bank statement whose Cash in Bank equals the ledger's True Book Balance (or by using the *Use Book Balance* helper), the variance drops to ₱0.00 because physical and internal records are aligned.
+

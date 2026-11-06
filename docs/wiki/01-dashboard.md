@@ -80,3 +80,4 @@ flowchart LR
 
 **Q: How often is the dashboard refreshed?**  
 *A*: The dashboard uses React Query with real-time caching. Navigating to the page or clicking **Refresh Books** in child modules triggers an instant re-query against the PostgreSQL database.
+

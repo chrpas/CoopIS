@@ -117,3 +117,4 @@ Clicking the chevron (▶) expands all loans belonging to that member:
   - A loan transitions to `PAID` **if and only if all scheduled cutoff installments are paid in full**.
   - If any installment remains unpaid, the loan remains strictly `ACTIVE`.
 - **Real-Time Accounting Sync**: Recording repayments automatically adjusts **Accounts Receivable** and increases **Cash in Bank** on the General Ledger.
+
