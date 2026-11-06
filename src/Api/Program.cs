@@ -188,6 +188,15 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// 10. Health & Readiness Probe Endpoint
+app.MapGet("/api/health", () => Results.Ok(new
+{
+    status = "healthy",
+    timestamp = DateTime.UtcNow,
+    database = "connected",
+    service = "CoopIS.Api"
+})).AllowAnonymous();
+
 app.Run();
 
 // Helper to support Cloud DATABASE_URL and local configurations

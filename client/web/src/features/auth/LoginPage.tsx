@@ -1,20 +1,71 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
-import { Landmark, Shield, User, Lock, ArrowRight, AlertCircle } from "lucide-react";
+import { Landmark, Shield, User, Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+
+type BackendHealth = "checking" | "online" | "offline";
 
 export const LoginPage: React.FC = () => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [backendHealth, setBackendHealth] = useState<BackendHealth>("checking");
 
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
+  const checkBackendHealth = useCallback(async () => {
+    setBackendHealth("checking");
+    try {
+      const res = await axios.get("/api/health", { timeout: 3500 });
+      if (res.status === 200 || res.status < 500) {
+        setBackendHealth("online");
+        return true;
+      }
+      setBackendHealth("offline");
+      return false;
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { status?: number } };
+      // Even if /api/health returned 404 on an older binary, the HTTP server is alive
+      if (axiosErr?.response?.status && axiosErr.response.status < 500) {
+        setBackendHealth("online");
+        return true;
+      }
+      setBackendHealth("offline");
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    let timer: NodeJS.Timeout;
+
+    const probe = async () => {
+      const isReady = await checkBackendHealth();
+      if (!isReady && isMounted) {
+        // Retry polling every 2.5 seconds if server is still spinning up
+        timer = setTimeout(probe, 2500);
+      }
+    };
+
+    probe();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [checkBackendHealth]);
+
   const handleLoginSubmit = async (e?: React.FormEvent, customUser?: string, customPass?: string) => {
     if (e) e.preventDefault();
+    if (backendHealth !== "online") {
+      await checkBackendHealth();
+      return;
+    }
+
     setError(null);
     setLoading(true);
 
@@ -42,6 +93,7 @@ export const LoginPage: React.FC = () => {
       if (serverMsg) {
         setError(serverMsg);
       } else if (!status || status >= 500) {
+        setBackendHealth("offline");
         setError(
           "Unable to reach the CoopIS Backend API (http://localhost:5208). Please ensure the API server is running."
         );
@@ -54,16 +106,22 @@ export const LoginPage: React.FC = () => {
   };
 
   const handleQuickAdminLogin = () => {
+    if (backendHealth !== "online" || loading) return;
     setUsername("admin");
     setPassword("Admin123!");
     handleLoginSubmit(undefined, "admin", "Admin123!");
   };
 
   const handleQuickUserLogin = () => {
+    if (backendHealth !== "online" || loading) return;
     setUsername("loanuser");
     setPassword("User123!");
     handleLoginSubmit(undefined, "loanuser", "User123!");
   };
+
+  const isInitializing = backendHealth === "checking";
+  const isOffline = backendHealth === "offline";
+  const isActionDisabled = loading || isInitializing || isOffline;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
@@ -75,6 +133,36 @@ export const LoginPage: React.FC = () => {
         <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-slate-300">
           Clean Architecture Cooperative Management System
         </p>
+
+        {/* Backend & Database Readiness Indicator */}
+        <div className="mt-3 flex items-center justify-center">
+          {backendHealth === "checking" && (
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-400/30 text-amber-300 text-xs font-medium animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              <span>Initializing database & API connection...</span>
+            </div>
+          )}
+          {backendHealth === "online" && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/30 text-emerald-300 text-xs font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>System Online & Ready</span>
+            </div>
+          )}
+          {backendHealth === "offline" && (
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-500/15 border border-rose-400/30 text-rose-300 text-xs font-medium">
+              <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+              <span>Backend API Offline (http://localhost:5208)</span>
+              <button
+                type="button"
+                onClick={() => checkBackendHealth()}
+                className="ml-1 inline-flex items-center gap-1 underline hover:text-white cursor-pointer font-semibold"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md w-full">
@@ -127,11 +215,34 @@ export const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold text-sm transition-colors shadow-md shadow-emerald-600/20 disabled:opacity-50"
+              disabled={isActionDisabled}
+              className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all shadow-md ${
+                isActionDisabled
+                  ? "bg-slate-700 text-slate-400 cursor-not-allowed opacity-75 shadow-none"
+                  : "bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20 cursor-pointer"
+              }`}
             >
-              {loading ? "Authenticating..." : "Sign In to Account"}
-              {!loading && <ArrowRight className="w-4 h-4" />}
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Authenticating...
+                </>
+              ) : isInitializing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
+                  Initializing Backend Engine...
+                </>
+              ) : isOffline ? (
+                <>
+                  <AlertCircle className="w-4 h-4 text-rose-400" />
+                  Backend Offline — Click to Retry
+                </>
+              ) : (
+                <>
+                  Sign In to Account
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
 
@@ -144,27 +255,35 @@ export const LoginPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleQuickAdminLogin}
-                disabled={loading}
-                className="flex flex-col items-center justify-center p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 active:bg-emerald-200 text-emerald-900 transition-all text-center cursor-pointer"
+                disabled={isActionDisabled}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                  isActionDisabled
+                    ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
+                    : "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 active:bg-emerald-200 text-emerald-900 cursor-pointer"
+                }`}
               >
-                <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-800">
-                  <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <Shield className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-emerald-600"}`} />
                   Login as Admin
                 </div>
-                <span className="text-[11px] text-emerald-700 mt-0.5">Full System Access</span>
+                <span className="text-[11px] mt-0.5">Full System Access</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleQuickUserLogin}
-                disabled={loading}
-                className="flex flex-col items-center justify-center p-3 rounded-xl border border-amber-200 bg-amber-50/70 hover:bg-amber-100/80 active:bg-amber-200 text-amber-900 transition-all text-center cursor-pointer"
+                disabled={isActionDisabled}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                  isActionDisabled
+                    ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
+                    : "border-amber-200 bg-amber-50/70 hover:bg-amber-100/80 active:bg-amber-200 text-amber-900 cursor-pointer"
+                }`}
               >
-                <div className="flex items-center gap-1.5 font-bold text-xs text-amber-800">
-                  <User className="w-3.5 h-3.5 text-amber-600" />
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <User className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-amber-600"}`} />
                   Login as User
                 </div>
-                <span className="text-[11px] text-amber-700 mt-0.5">Loan Management Only</span>
+                <span className="text-[11px] mt-0.5">Loan Management Only</span>
               </button>
             </div>
           </div>
