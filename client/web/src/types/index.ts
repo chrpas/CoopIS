@@ -152,13 +152,15 @@ export interface MemberDetail {
 export interface MemberCutoffIndicator {
   cutoffId: string;
   label: string;
+  cutoffNumber?: number;
   cutoffDate: string;
-  dueDateWithGrace: string;
+  dueDateWithGrace?: string;
   fiscalYear: number;
-  status: "CONTRIBUTED" | "ON_TIME" | "LATE" | "OVERDUE" | "UPCOMING";
+  status: "CONTRIBUTED" | "ON_TIME" | "LATE" | "CONTRIBUTED_LATE" | "OVERDUE" | "GRACE_PERIOD" | "UPCOMING" | string;
   amount?: number | null;
   paymentChannel?: PaymentChannel | null;
   paymentDate?: string | null;
+  recordedAt?: string | null;
   daysLate: number;
   penaltyAmount: number;
 }

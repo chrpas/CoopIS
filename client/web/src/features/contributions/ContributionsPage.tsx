@@ -39,6 +39,7 @@ import {
   History,
   Eye,
   Plus,
+  Clock,
 } from "lucide-react";
 
 interface EditableRowData extends CutoffMemberContribution {}
@@ -90,6 +91,125 @@ export const ContributionsPage: React.FC = () => {
     },
     enabled: isMember,
   });
+
+  const [memberLedgerFilter, setMemberLedgerFilter] = useState<
+    "all" | "on_time" | "late_grace" | "overdue" | "upcoming"
+  >("all");
+
+  // Transform schedule and remittance ledger into a comprehensive itemized ledger
+  const itemizedLedgerRows = useMemo(() => {
+    const schedule = memberStatement?.schedule || memberStatement?.cutoffSchedule || [];
+    const ledger = memberStatement?.remittanceLedger || [];
+    const ledgerMap = new Map<string, (typeof ledger)[0]>();
+    ledger.forEach((item) => {
+      if (item.cutoffId) ledgerMap.set(item.cutoffId, item);
+      if (item.cutoffLabel) ledgerMap.set(item.cutoffLabel.toLowerCase(), item);
+    });
+
+    if (schedule.length > 0) {
+      return schedule.map((indicator, idx) => {
+        const matchingLedger =
+          ledgerMap.get(indicator.cutoffId) ||
+          ledgerMap.get((indicator.label || "").toLowerCase());
+
+        let category: "on_time" | "late_grace" | "overdue" | "upcoming" = "upcoming";
+        let statusLabel = "Upcoming";
+
+        const rawStatus = (indicator.status || "").toUpperCase();
+        if (rawStatus === "CONTRIBUTED" || rawStatus === "ON_TIME") {
+          category = "on_time";
+          statusLabel = "On-Time";
+        } else if (
+          rawStatus === "CONTRIBUTED_LATE" ||
+          rawStatus === "LATE" ||
+          rawStatus === "GRACE_PERIOD"
+        ) {
+          category = "late_grace";
+          statusLabel = "Late / Grace";
+        } else if (rawStatus === "OVERDUE") {
+          category = "overdue";
+          statusLabel = "Overdue";
+        } else {
+          category = "upcoming";
+          statusLabel = "Upcoming";
+        }
+
+        const amount = indicator.amount ?? matchingLedger?.amount ?? null;
+        const paymentChannel =
+          indicator.paymentChannel ?? matchingLedger?.paymentChannel ?? null;
+        const orNumber = matchingLedger?.id
+          ? `OR-${matchingLedger.id.slice(0, 8).toUpperCase()}`
+          : indicator.amount
+          ? `OR-${indicator.cutoffId.slice(0, 8).toUpperCase()}`
+          : null;
+        const recordedDate =
+          indicator.recordedAt ?? indicator.paymentDate ?? matchingLedger?.createdAt ?? null;
+
+        return {
+          id: indicator.cutoffId || `cutoff-${idx}`,
+          cutoffNumber: indicator.cutoffNumber ?? idx + 1,
+          cutoffLabel: indicator.label || `Cutoff ${idx + 1}`,
+          cutoffDate: indicator.cutoffDate,
+          category,
+          statusLabel,
+          statusRaw: rawStatus,
+          amount,
+          paymentChannel,
+          orNumber,
+          recordedDate,
+          daysLate: indicator.daysLate,
+        };
+      });
+    }
+
+    return ledger.map((item, idx) => ({
+      id: item.id || `ledger-${idx}`,
+      cutoffNumber: idx + 1,
+      cutoffLabel: item.cutoffLabel,
+      cutoffDate: item.cutoffDate,
+      category: "on_time" as const,
+      statusLabel: "On-Time",
+      statusRaw: "CONTRIBUTED",
+      amount: item.amount,
+      paymentChannel: item.paymentChannel,
+      orNumber: `OR-${item.id.slice(0, 8).toUpperCase()}`,
+      recordedDate: item.createdAt,
+      daysLate: 0,
+    }));
+  }, [memberStatement?.schedule, memberStatement?.cutoffSchedule, memberStatement?.remittanceLedger]);
+
+  const onTimeRowsCount = useMemo(
+    () => itemizedLedgerRows.filter((r) => r.category === "on_time").length,
+    [itemizedLedgerRows]
+  );
+  const lateGraceRowsCount = useMemo(
+    () => itemizedLedgerRows.filter((r) => r.category === "late_grace").length,
+    [itemizedLedgerRows]
+  );
+  const overdueRowsCount = useMemo(
+    () => itemizedLedgerRows.filter((r) => r.category === "overdue").length,
+    [itemizedLedgerRows]
+  );
+  const upcomingRowsCount = useMemo(
+    () => itemizedLedgerRows.filter((r) => r.category === "upcoming").length,
+    [itemizedLedgerRows]
+  );
+
+  const filteredMemberLedgerRows = useMemo(() => {
+    return itemizedLedgerRows.filter((item) => {
+      if (memberLedgerFilter !== "all" && item.category !== memberLedgerFilter) {
+        return false;
+      }
+      if (!memberLedgerSearch.trim()) return true;
+      const term = memberLedgerSearch.toLowerCase();
+      return (
+        item.cutoffLabel.toLowerCase().includes(term) ||
+        item.statusLabel.toLowerCase().includes(term) ||
+        (item.paymentChannel && item.paymentChannel.toLowerCase().includes(term)) ||
+        (item.orNumber && item.orNumber.toLowerCase().includes(term))
+      );
+    });
+  }, [itemizedLedgerRows, memberLedgerFilter, memberLedgerSearch]);
 
   // Distinct available fiscal years (sorted descending)
   const availableFiscalYears = useMemo(() => {
@@ -774,28 +894,105 @@ export const ContributionsPage: React.FC = () => {
 
           {/* 2. Itemized Personal Remittance Ledger Table */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200/80 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="p-4 border-b border-slate-200/80 bg-slate-50/50 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
                   <History className="w-4 h-4 text-emerald-600" />
                   Itemized Remittance Ledger
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Itemized personal remittances and payment channel verification
+                  Cutoff contribution schedule, verified remittances, and compliance tracking
                 </p>
               </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Filter by cutoff or channel..."
-                  value={memberLedgerSearch}
-                  onChange={(e) => {
-                    setMemberLedgerSearch(e.target.value);
-                    setMemberLedgerPage(1);
-                  }}
-                  className="w-full text-xs font-medium pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
-                />
+
+              {/* Status Filter Tabs & Search */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <div className="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200 text-xs font-semibold overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemberLedgerFilter("all");
+                      setMemberLedgerPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                      memberLedgerFilter === "all"
+                        ? "bg-white text-slate-900 shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    All ({itemizedLedgerRows.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemberLedgerFilter("on_time");
+                      setMemberLedgerPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                      memberLedgerFilter === "on_time"
+                        ? "bg-emerald-600 text-white shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    On-Time ({onTimeRowsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemberLedgerFilter("late_grace");
+                      setMemberLedgerPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                      memberLedgerFilter === "late_grace"
+                        ? "bg-amber-600 text-white shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Late / Grace ({lateGraceRowsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemberLedgerFilter("overdue");
+                      setMemberLedgerPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                      memberLedgerFilter === "overdue"
+                        ? "bg-rose-600 text-white shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Overdue ({overdueRowsCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMemberLedgerFilter("upcoming");
+                      setMemberLedgerPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                      memberLedgerFilter === "upcoming"
+                        ? "bg-slate-700 text-white shadow-2xs font-bold"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Upcoming ({upcomingRowsCount})
+                  </button>
+                </div>
+
+                <div className="relative w-full sm:w-60">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search cutoff, status, channel..."
+                    value={memberLedgerSearch}
+                    onChange={(e) => {
+                      setMemberLedgerSearch(e.target.value);
+                      setMemberLedgerPage(1);
+                    }}
+                    className="w-full text-xs font-medium pl-9 pr-4 py-1.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                  />
+                </div>
               </div>
             </div>
 
@@ -805,6 +1002,7 @@ export const ContributionsPage: React.FC = () => {
                   <tr>
                     <th className="py-3 px-4">Cutoff Period</th>
                     <th className="py-3 px-4">Cutoff Date</th>
+                    <th className="py-3 px-4 text-center">Status</th>
                     <th className="py-3 px-4 text-right">Remittance Amount (₱)</th>
                     <th className="py-3 px-4">Payment Channel</th>
                     <th className="py-3 px-4">Reference / OR #</th>
@@ -812,31 +1010,36 @@ export const ContributionsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {(memberStatement?.remittanceLedger || []).length === 0 ? (
+                  {filteredMemberLedgerRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400">
-                        No remittances recorded yet.
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
+                        No cutoff remittance entries match the selected filter.
                       </td>
                     </tr>
                   ) : (
-                    (memberStatement?.remittanceLedger || [])
-                      .filter((item) => {
-                        if (!memberLedgerSearch.trim()) return true;
-                        const term = memberLedgerSearch.toLowerCase();
-                        return (
-                          item.cutoffLabel.toLowerCase().includes(term) ||
-                          item.paymentChannel.toLowerCase().includes(term) ||
-                          item.id.toLowerCase().includes(term)
-                        );
-                      })
+                    filteredMemberLedgerRows
                       .slice(
                         (memberLedgerPage - 1) * memberLedgerPageSize,
                         memberLedgerPage * memberLedgerPageSize
                       )
                       .map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <tr
+                          key={item.id}
+                          className={`transition-colors ${
+                            item.category === "overdue"
+                              ? "bg-rose-50/40 hover:bg-rose-50/70"
+                              : item.category === "late_grace"
+                              ? "bg-amber-50/30 hover:bg-amber-50/60"
+                              : "hover:bg-slate-50/80"
+                          }`}
+                        >
                           <td className="py-3.5 px-4 font-bold text-slate-900">
-                            {item.cutoffLabel}
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700">
+                                C{String(item.cutoffNumber).padStart(2, "0")}
+                              </span>
+                              <span>{item.cutoffLabel}</span>
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 text-slate-600 text-xs">
                             {new Date(item.cutoffDate).toLocaleDateString("en-US", {
@@ -845,23 +1048,68 @@ export const ContributionsPage: React.FC = () => {
                               year: "numeric",
                             })}
                           </td>
-                          <td className="py-3.5 px-4 text-right font-mono font-extrabold text-emerald-700 text-sm">
-                            ₱{Number(item.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          <td className="py-3.5 px-4 text-center">
+                            {item.category === "on_time" ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                On-Time
+                              </span>
+                            ) : item.category === "late_grace" ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                Late / Grace{item.daysLate ? ` (${item.daysLate}d)` : ""}
+                              </span>
+                            ) : item.category === "overdue" ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                <AlertCircle className="w-3 h-3 text-rose-600" />
+                                Overdue
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                Upcoming
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-extrabold text-sm">
+                            {item.amount != null ? (
+                              <span className="text-emerald-700">
+                                ₱{Number(item.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                              </span>
+                            ) : item.category === "overdue" ? (
+                              <span className="text-rose-500 font-semibold text-xs">Unpaid</span>
+                            ) : (
+                              <span className="text-slate-400 font-normal">—</span>
+                            )}
                           </td>
                           <td className="py-3.5 px-4">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700">
-                              {item.paymentChannel.replace(/_/g, " ")}
-                            </span>
+                            {item.paymentChannel ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700">
+                                {item.paymentChannel.replace(/_/g, " ")}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-xs">—</span>
+                            )}
                           </td>
                           <td className="py-3.5 px-4 font-mono text-xs text-slate-600">
-                            OR-{item.id.slice(0, 8).toUpperCase()}
+                            {item.orNumber || <span className="text-slate-400 font-sans">—</span>}
                           </td>
-                          <td className="py-3.5 px-4 text-right text-xs text-slate-500">
-                            {new Date(item.createdAt).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
+                          <td className="py-3.5 px-4 text-right text-xs">
+                            {item.recordedDate ? (
+                              <span className="text-slate-600">
+                                {new Date(item.recordedDate).toLocaleDateString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </span>
+                            ) : item.category === "overdue" ? (
+                              <span className="text-rose-600 font-medium">Overdue</span>
+                            ) : item.category === "late_grace" ? (
+                              <span className="text-amber-600 font-medium">Grace Window</span>
+                            ) : (
+                              <span className="text-slate-400">Scheduled</span>
+                            )}
                           </td>
                         </tr>
                       ))
@@ -873,20 +1121,10 @@ export const ContributionsPage: React.FC = () => {
             <TablePagination
               page={memberLedgerPage}
               pageSize={memberLedgerPageSize}
-              totalItems={
-                (memberStatement?.remittanceLedger || []).filter((item) => {
-                  if (!memberLedgerSearch.trim()) return true;
-                  const term = memberLedgerSearch.toLowerCase();
-                  return (
-                    item.cutoffLabel.toLowerCase().includes(term) ||
-                    item.paymentChannel.toLowerCase().includes(term) ||
-                    item.id.toLowerCase().includes(term)
-                  );
-                }).length
-              }
+              totalItems={filteredMemberLedgerRows.length}
               onPageChange={setMemberLedgerPage}
               onPageSizeChange={setMemberLedgerPageSize}
-              itemLabel="remittances"
+              itemLabel="cutoffs"
             />
           </div>
         </div>
