@@ -1,8 +1,10 @@
 using System;
 using System.IdentityModel.Tokens.Jwt;
+using System.IO;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using System.Threading.Tasks;
 using CoopIS.Api.Middleware;
 using CoopIS.Application.Common;
 using CoopIS.Application.Services;
@@ -190,6 +192,10 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Ena
 app.UseCors("AllowFrontend");
 app.UseRateLimiter();
 
+// Serve the built React SPA from wwwroot without requiring authentication
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -203,6 +209,26 @@ app.MapGet("/api/health", () => Results.Ok(new
     database = "connected",
     service = "CoopIS.Api"
 })).AllowAnonymous();
+
+// 11. SPA fallback: unknown /api/* paths return 404, everything else serves index.html
+app.MapFallback(context =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return Task.CompletedTask;
+    }
+
+    var indexPath = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "index.html");
+    if (!File.Exists(indexPath))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return Task.CompletedTask;
+    }
+
+    context.Response.ContentType = "text/html";
+    return context.Response.SendFileAsync(indexPath);
+});
 
 app.Run();
 
