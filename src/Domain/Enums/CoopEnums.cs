@@ -26,5 +26,6 @@ public enum PaymentChannel
 public enum UserRole
 {
     Admin,
-    User
+    User,
+    Member
 }

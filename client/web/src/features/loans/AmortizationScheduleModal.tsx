@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 import { Loan, AmortizationScheduleItem } from "../../types";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import { RecordRepaymentModal } from "./RecordRepaymentModal";
@@ -28,6 +29,9 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
   isOpen,
   onClose,
 }) => {
+  const { user } = useAuth();
+  const isMember = user?.role === "Member";
+
   const [selectedCutoffForPayment, setSelectedCutoffForPayment] =
     useState<AmortizationScheduleItem | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -307,7 +311,7 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                           Late Penalty (₱)
                         </th>
                         <th className="py-3 px-3.5 text-center">Status</th>
-                        <th className="py-3 px-3.5 text-center">Action</th>
+                        {!isMember && <th className="py-3 px-3.5 text-center">Action</th>}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-medium">
@@ -405,23 +409,25 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
                             <td className="py-3 px-3.5 text-center">
                               {getStatusBadge(effectiveStatus, item.daysOverdue)}
                             </td>
-                            <td className="py-3 px-3.5 text-center">
-                              {!isPaid && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRecordPayment(item)}
-                                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer ${
-                                    isOverdue
-                                      ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-700/20"
-                                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20"
-                                  }`}
-                                  title={`Record repayment for ${item.cutoffLabel}`}
-                                >
-                                  <CreditCard className="w-3.5 h-3.5" />
-                                  Record Payment
-                                </button>
-                              )}
-                            </td>
+                            {!isMember && (
+                              <td className="py-3 px-3.5 text-center">
+                                {!isPaid && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRecordPayment(item)}
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                                      isOverdue
+                                        ? "bg-rose-600 hover:bg-rose-700 text-white shadow-rose-700/20"
+                                        : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-700/20"
+                                    }`}
+                                    title={`Record repayment for ${item.cutoffLabel}`}
+                                  >
+                                    <CreditCard className="w-3.5 h-3.5" />
+                                    Record Payment
+                                  </button>
+                                )}
+                              </td>
+                            )}
                           </tr>
                         );
                       })}

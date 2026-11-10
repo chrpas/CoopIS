@@ -13,10 +13,12 @@ import {
   PaginationState,
 } from "@tanstack/react-table";
 import { api } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 import {
   CutoffPeriod,
   CutoffMemberContribution,
   ContributionSummary,
+  MemberStatementResponse,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
@@ -42,6 +44,9 @@ import {
 interface EditableRowData extends CutoffMemberContribution {}
 
 export const ContributionsPage: React.FC = () => {
+  const { user } = useAuth();
+  const isMember = user?.role === "Member";
+
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -49,6 +54,9 @@ export const ContributionsPage: React.FC = () => {
   const [selectedFiscalYear, setSelectedFiscalYear] = useState<number | null>(null);
   const [selectedCutoffId, setSelectedCutoffId] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [memberLedgerSearch, setMemberLedgerSearch] = useState<string>("");
+  const [memberLedgerPage, setMemberLedgerPage] = useState<number>(1);
+  const [memberLedgerPageSize, setMemberLedgerPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
@@ -70,6 +78,17 @@ export const ContributionsPage: React.FC = () => {
       const res = await api.get<CutoffPeriod[]>("/cutoff-periods");
       return res.data;
     },
+  });
+
+  // Member Statement Query (Calling strictly scoped /contributions/my-statement)
+  const { data: memberStatement } = useQuery<MemberStatementResponse>({
+    queryKey: ["my-statement", selectedFiscalYear],
+    queryFn: async () => {
+      const yr = selectedFiscalYear || new Date().getFullYear();
+      const res = await api.get<MemberStatementResponse>(`/contributions/my-statement?fiscalYear=${yr}`);
+      return res.data;
+    },
+    enabled: isMember,
   });
 
   // Distinct available fiscal years (sorted descending)
@@ -127,7 +146,7 @@ export const ContributionsPage: React.FC = () => {
       );
       return res.data;
     },
-    enabled: !!selectedCutoffId,
+    enabled: !!selectedCutoffId && !isMember,
   });
 
   // Sync server data to local editable grid state
@@ -146,6 +165,7 @@ export const ContributionsPage: React.FC = () => {
       const res = await api.get<ContributionSummary>("/contributions/summary");
       return res.data;
     },
+    enabled: !isMember,
   });
 
   // 4. Finalize Cutoff Mutation (POST /api/cutoffs/{id}/finalize)
@@ -414,7 +434,7 @@ export const ContributionsPage: React.FC = () => {
         {/* Fiscal Year & Cutoff Selector & Actions */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Fiscal Year Selector */}
-          <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs">
+          <div className={`flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs ${isMember ? "opacity-75 cursor-not-allowed" : ""}`}>
             <label
               htmlFor="fy-select"
               className="text-xs font-semibold text-slate-500 uppercase tracking-wider"
@@ -425,8 +445,8 @@ export const ContributionsPage: React.FC = () => {
               id="fy-select"
               value={selectedFiscalYear ?? ""}
               onChange={(e) => handleFiscalYearChange(Number(e.target.value))}
-              disabled={isLoadingCutoffs}
-              className="text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer"
+              disabled={isMember || isLoadingCutoffs}
+              className={`text-sm font-bold text-slate-800 bg-transparent focus:outline-none ${isMember ? "cursor-not-allowed" : "cursor-pointer"}`}
             >
               {availableFiscalYears.map((yr) => (
                 <option key={yr} value={yr}>
@@ -437,7 +457,7 @@ export const ContributionsPage: React.FC = () => {
           </div>
 
           {/* Cutoff Selector */}
-          <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 sm:px-3.5 py-1.5 rounded-xl shadow-xs max-w-full">
+          <div className={`flex items-center gap-2 bg-white border border-slate-200 px-3 sm:px-3.5 py-1.5 rounded-xl shadow-xs max-w-full ${isMember ? "opacity-75 cursor-not-allowed" : ""}`}>
             <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />
             <label htmlFor="cutoff-select" className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">
               Cutoff:
@@ -446,8 +466,8 @@ export const ContributionsPage: React.FC = () => {
               id="cutoff-select"
               value={selectedCutoffId}
               onChange={(e) => setSelectedCutoffId(e.target.value)}
-              disabled={isLoadingCutoffs}
-              className="text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none cursor-pointer max-w-[200px] sm:max-w-none truncate"
+              disabled={isMember || isLoadingCutoffs}
+              className={`text-xs sm:text-sm font-bold text-slate-800 bg-transparent focus:outline-none max-w-[200px] sm:max-w-none truncate ${isMember ? "cursor-not-allowed" : "cursor-pointer"}`}
             >
               {isLoadingCutoffs ? (
                 <option>Loading cutoffs...</option>
@@ -473,7 +493,7 @@ export const ContributionsPage: React.FC = () => {
       </div>
 
       {/* Fiscal Year Rollover Banner when all cutoffs in the selected year are closed */}
-      {allCutoffsClosedInSelectedYear && selectedFiscalYear && (
+      {!isMember && allCutoffsClosedInSelectedYear && selectedFiscalYear && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0">
@@ -510,101 +530,369 @@ export const ContributionsPage: React.FC = () => {
       )}
 
       {/* 2. Summary Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total collected this cutoff */}
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-              This Cutoff Total
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Coins className="w-4 h-4" />
+      {isMember ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {/* Total Accumulated Share Capital */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Total Share Capital
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Coins className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
+              ₱{Number(memberStatement?.totalAccumulated || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>Lifetime Accumulated Equity</span>
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
-            ₱{totalThisCutoff.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+
+          {/* On-Time Remittances */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-blue-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                On-Time Remittances
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight text-emerald-700">
+              {memberStatement?.onTimeCount ?? 0}
+              <span className="text-sm font-normal text-slate-400 ml-1.5">cutoffs</span>
+            </div>
+            <div className="mt-1 text-xs text-slate-500 font-medium">
+              Remitted within statutory grace days
+            </div>
           </div>
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>Active Cutoff: {selectedCutoff?.label || "—"}</span>
+
+          {/* Overdue / Missed Cutoffs */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-rose-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Overdue / Missed Cutoffs
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight text-rose-600">
+              {memberStatement?.overdueCount ?? 0}
+              <span className="text-sm font-normal text-slate-400 ml-1.5">cutoffs</span>
+            </div>
+            <div className="mt-1 text-xs text-rose-600 font-medium">
+              {(memberStatement?.overdueCount ?? 0) > 0 ? "Requires remittance settlement" : "All past cutoffs fulfilled"}
+            </div>
           </div>
         </div>
-
-        {/* Grand Cooperative Capital */}
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-blue-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-              Grand Share Capital
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Building2 className="w-4 h-4" />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Total collected this cutoff */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-emerald-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                This Cutoff Total
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Coins className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
+              ₱{totalThisCutoff.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+              <TrendingUp className="w-3.5 h-3.5" />
+              <span>Active Cutoff: {selectedCutoff?.label || "—"}</span>
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
-            ₱
-            {(summaryData?.grandTotalShareCapital || 0).toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-            })}
+
+          {/* Grand Cooperative Capital */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-blue-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Grand Share Capital
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Building2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
+              ₱
+              {(summaryData?.grandTotalShareCapital || 0).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
+            </div>
+            <div className="mt-1 text-xs text-slate-500 font-medium">
+              Accumulated cooperative equity
+            </div>
           </div>
-          <div className="mt-1 text-xs text-slate-500 font-medium">
-            Accumulated cooperative equity
+
+          {/* Active Contributing Members */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-purple-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Contributing Members
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
+              {summaryData?.activeContributingMembersCount || 0}
+              <span className="text-sm font-normal text-slate-400 ml-1">
+                / {summaryData?.totalMembersCount || gridData.length} active
+              </span>
+            </div>
+            <div className="mt-1 text-xs text-slate-500 font-medium">
+              Avg: ₱
+              {(summaryData?.averageContributionPerMember || 0).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+              })}
+              /member
+            </div>
+          </div>
+
+          {/* Progress Counter & Bar */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-amber-300 transition-colors">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                Cutoff Progress
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <div className="text-2xl font-black text-slate-900 font-mono">
+                {contributingMembersThisCutoff} / {gridData.length}
+              </div>
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                {completionPercent}%
+              </span>
+            </div>
+            {/* Visual Progress Bar */}
+            <div className="mt-3 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-emerald-600 h-2 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${completionPercent}%` }}
+              />
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Active Contributing Members */}
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-purple-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-              Contributing Members
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-black text-slate-900 font-mono tracking-tight">
-            {summaryData?.activeContributingMembersCount || 0}
-            <span className="text-sm font-normal text-slate-400 ml-1">
-              / {summaryData?.totalMembersCount || gridData.length} active
-            </span>
-          </div>
-          <div className="mt-1 text-xs text-slate-500 font-medium">
-            Avg: ₱
-            {(summaryData?.averageContributionPerMember || 0).toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-            })}
-            /member
-          </div>
-        </div>
+      {/* Member Personal Statement View vs Admin Data Entry / Cumulative Ledgers */}
+      {isMember ? (
+        <div className="space-y-6">
+          {/* 1. 24-Cutoff Period Matrix */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs p-5 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-emerald-600" />
+                  24-Cutoff Semi-Monthly Remittance Matrix (FY {selectedFiscalYear ?? new Date().getFullYear()})
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Visual compliance indicators for scheduled semi-monthly share contributions.
+                </p>
+              </div>
 
-        {/* Progress Counter & Bar */}
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs relative overflow-hidden group hover:border-amber-300 transition-colors">
-          <div className="flex items-center justify-between">
-            <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
-              Cutoff Progress
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <CheckCircle2 className="w-4 h-4" />
+              {/* Status Legend */}
+              <div className="flex flex-wrap items-center gap-3 text-xs font-medium">
+                <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  On-Time
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-amber-700">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                  Late / Grace
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-rose-700">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                  Overdue
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-slate-500">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+                  Upcoming
+                </span>
+              </div>
+            </div>
+
+            {/* Matrix Cards (C01 - C24) */}
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
+              {(memberStatement?.schedule || []).map((indicator, idx) => {
+                const shortDate = new Date(indicator.cutoffDate).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                });
+                const isContributed =
+                  indicator.status === "CONTRIBUTED" || indicator.status === "ON_TIME";
+                const isLate = indicator.status === "LATE";
+                const isOverdue = indicator.status === "OVERDUE";
+
+                return (
+                  <div
+                    key={indicator.cutoffId || idx}
+                    title={`${indicator.label} (${shortDate}) • Status: ${indicator.status}${
+                      indicator.amount ? ` • ₱${Number(indicator.amount).toLocaleString()}` : ""
+                    }${indicator.penaltyAmount > 0 ? ` • Penalty: ₱${Number(indicator.penaltyAmount).toLocaleString()}` : ""}`}
+                    className={`p-3 rounded-xl border text-center transition-all ${
+                      isContributed
+                        ? "bg-emerald-50/80 border-emerald-200 text-emerald-950 shadow-xs"
+                        : isLate
+                        ? "bg-amber-50/80 border-amber-300 text-amber-950 shadow-xs"
+                        : isOverdue
+                        ? "bg-rose-50/80 border-rose-300 text-rose-950 shadow-xs"
+                        : "bg-slate-50 border-slate-200 text-slate-500"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-xs font-mono font-bold mb-1">
+                      <span>C{String(idx + 1).padStart(2, "0")}</span>
+                      {isContributed ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : isLate ? (
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                      ) : isOverdue ? (
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-slate-300" />
+                      )}
+                    </div>
+                    <div className="text-[11px] font-semibold text-slate-700">{shortDate}</div>
+                    <div className="text-[10px] font-bold font-mono mt-1">
+                      {indicator.amount ? `₱${Number(indicator.amount).toLocaleString()}` : isOverdue ? "MISSING" : "—"}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <div className="mt-2 flex items-baseline justify-between">
-            <div className="text-2xl font-black text-slate-900 font-mono">
-              {contributingMembersThisCutoff} / {gridData.length}
+
+          {/* 2. Itemized Personal Remittance Ledger Table */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-slate-200/80 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <History className="w-4 h-4 text-emerald-600" />
+                  Itemized Remittance Ledger
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Itemized personal remittances and payment channel verification
+                </p>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter by cutoff or channel..."
+                  value={memberLedgerSearch}
+                  onChange={(e) => {
+                    setMemberLedgerSearch(e.target.value);
+                    setMemberLedgerPage(1);
+                  }}
+                  className="w-full text-xs font-medium pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+              </div>
             </div>
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              {completionPercent}%
-            </span>
-          </div>
-          {/* Visual Progress Bar */}
-          <div className="mt-3 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-            <div
-              className="bg-emerald-600 h-2 rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${completionPercent}%` }}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs sm:text-sm">
+                <thead className="bg-slate-50/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200/80">
+                  <tr>
+                    <th className="py-3 px-4">Cutoff Period</th>
+                    <th className="py-3 px-4">Cutoff Date</th>
+                    <th className="py-3 px-4 text-right">Remittance Amount (₱)</th>
+                    <th className="py-3 px-4">Payment Channel</th>
+                    <th className="py-3 px-4">Reference / OR #</th>
+                    <th className="py-3 px-4 text-right">Recorded Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(memberStatement?.remittanceLedger || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                        No remittances recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    (memberStatement?.remittanceLedger || [])
+                      .filter((item) => {
+                        if (!memberLedgerSearch.trim()) return true;
+                        const term = memberLedgerSearch.toLowerCase();
+                        return (
+                          item.cutoffLabel.toLowerCase().includes(term) ||
+                          item.paymentChannel.toLowerCase().includes(term) ||
+                          item.id.toLowerCase().includes(term)
+                        );
+                      })
+                      .slice(
+                        (memberLedgerPage - 1) * memberLedgerPageSize,
+                        memberLedgerPage * memberLedgerPageSize
+                      )
+                      .map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            {item.cutoffLabel}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600 text-xs">
+                            {new Date(item.cutoffDate).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-extrabold text-emerald-700 text-sm">
+                            ₱{Number(item.amount).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700">
+                              {item.paymentChannel.replace(/_/g, " ")}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-mono text-xs text-slate-600">
+                            OR-{item.id.slice(0, 8).toUpperCase()}
+                          </td>
+                          <td className="py-3.5 px-4 text-right text-xs text-slate-500">
+                            {new Date(item.createdAt).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <TablePagination
+              page={memberLedgerPage}
+              pageSize={memberLedgerPageSize}
+              totalItems={
+                (memberStatement?.remittanceLedger || []).filter((item) => {
+                  if (!memberLedgerSearch.trim()) return true;
+                  const term = memberLedgerSearch.toLowerCase();
+                  return (
+                    item.cutoffLabel.toLowerCase().includes(term) ||
+                    item.paymentChannel.toLowerCase().includes(term) ||
+                    item.id.toLowerCase().includes(term)
+                  );
+                }).length
+              }
+              onPageChange={setMemberLedgerPage}
+              onPageSizeChange={setMemberLedgerPageSize}
+              itemLabel="remittances"
             />
           </div>
         </div>
-      </div>
-
-      {/* Tab switcher: Entry Grid vs Cumulative Summary */}
+      ) : (
+        <>
+          {/* Tab switcher: Entry Grid vs Cumulative Summary */}
       <div className="flex items-center justify-between">
         <div className="bg-slate-200/80 p-1 rounded-xl inline-flex items-center gap-1">
           <button
@@ -858,6 +1146,8 @@ export const ContributionsPage: React.FC = () => {
             </>
           )}
         </div>
+      )}
+        </>
       )}
 
       {/* Modal: Record / Edit Contribution */}

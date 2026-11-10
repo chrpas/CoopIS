@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useReactTable,
   getCoreRowModel,
@@ -12,9 +12,11 @@ import { useAuth } from "../../context/AuthContext";
 import { MemberModalForm } from "./MemberModalForm";
 import { MemberDeleteDialog } from "./MemberDeleteDialog";
 import { MemberDetailsDrawer } from "./MemberDetailsDrawer";
+import { AssignAccountModal } from "./AssignAccountModal";
 import {
   Users,
   UserPlus,
+  KeyRound,
   Search,
   Filter,
   CheckCircle2,
@@ -41,6 +43,8 @@ export const MembersPage: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "Admin";
 
+  const queryClient = useQueryClient();
+
   // Filter & Pagination States
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<MemberStatus | "">("");
@@ -53,6 +57,8 @@ export const MembersPage: React.FC = () => {
   const [isEnrollModalOpen, setIsEnrollModalOpen] = useState(false);
   const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
+  const [memberForAssignAccount, setMemberForAssignAccount] = useState<Member | null>(null);
+  const [assignSuccessNotice, setAssignSuccessNotice] = useState<string | null>(null);
   const [selectedMemberIdForProfile, setSelectedMemberIdForProfile] = useState<string | null>(null);
 
   // Fetch paginated member directory
@@ -303,6 +309,38 @@ export const MembersPage: React.FC = () => {
         ),
       },
       {
+        id: "portalAccount",
+        header: () => <span className="block">Portal Login</span>,
+        cell: ({ row }) => {
+          const username = row.original.linkedUsername;
+          if (username) {
+            return (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <KeyRound className="w-3 h-3 text-emerald-600" />
+                @{username}
+              </span>
+            );
+          }
+          if (isAdmin) {
+            return (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMemberForAssignAccount(row.original);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 hover:border-emerald-300 transition-all shadow-2xs"
+                title="Create login account for this member"
+              >
+                <UserPlus className="w-3 h-3 text-emerald-600" />
+                Assign Login
+              </button>
+            );
+          }
+          return <span className="text-xs text-slate-400 italic">No account</span>;
+        },
+      },
+      {
         id: "actions",
         header: () => <span className="text-right block">Actions</span>,
         cell: ({ row }) => (
@@ -316,6 +354,15 @@ export const MembersPage: React.FC = () => {
             </button>
             {isAdmin && (
               <>
+                {!row.original.linkedUsername && (
+                  <button
+                    onClick={() => setMemberForAssignAccount(row.original)}
+                    className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                    title="Assign portal login"
+                  >
+                    <KeyRound className="w-4 h-4 text-emerald-600" />
+                  </button>
+                )}
                 <button
                   onClick={() => setMemberToEdit(row.original)}
                   className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-50 rounded-lg transition-colors"
@@ -388,6 +435,22 @@ export const MembersPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Success Notification */}
+      {assignSuccessNotice && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center justify-between shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-medium">{assignSuccessNotice}</span>
+          </div>
+          <button
+            onClick={() => setAssignSuccessNotice(null)}
+            className="text-emerald-600 hover:text-emerald-800 text-xs font-bold px-2 py-0.5 rounded-md hover:bg-emerald-100"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Control Bar: Search & Status Filters */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
@@ -632,6 +695,25 @@ export const MembersPage: React.FC = () => {
         onRequestDelete={(m) => {
           setSelectedMemberIdForProfile(null);
           setMemberToDelete(m);
+        }}
+        onAssignAccount={(m) => {
+          setSelectedMemberIdForProfile(null);
+          setMemberForAssignAccount(m as any);
+        }}
+      />
+
+      {/* Modal 3: Assign Portal Login Account */}
+      <AssignAccountModal
+        isOpen={Boolean(memberForAssignAccount)}
+        member={memberForAssignAccount}
+        onClose={() => setMemberForAssignAccount(null)}
+        onSuccess={(username) => {
+          setAssignSuccessNotice(
+            `Portal account @${username} was successfully assigned to ${memberForAssignAccount?.firstName} ${memberForAssignAccount?.lastName} with Members role.`
+          );
+          queryClient.invalidateQueries({ queryKey: ["members"] });
+          queryClient.invalidateQueries({ queryKey: ["member-detail"] });
+          setTimeout(() => setAssignSuccessNotice(null), 6000);
         }}
       />
     </div>

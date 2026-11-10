@@ -92,11 +92,21 @@ public static class DbInitializer
                         ""Value"" text NOT NULL,
                         ""UpdatedAt"" timestamp with time zone NOT NULL,
                         CONSTRAINT ""PK_AppSettings"" PRIMARY KEY (""Key"")
-                    );");
+                    );
+                    ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""MemberId"" uuid NULL;
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'FK_Users_Members_MemberId'
+                        ) THEN
+                            ALTER TABLE ""Users"" ADD CONSTRAINT ""FK_Users_Members_MemberId""
+                            FOREIGN KEY (""MemberId"") REFERENCES ""Members"" (""Id"") ON DELETE SET NULL;
+                        END IF;
+                    END $$;");
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Could not verify AppSettings table via raw SQL.");
+                logger.LogWarning(ex, "Could not verify AppSettings or Users.MemberId column via raw SQL.");
             }
         }
 
@@ -168,6 +178,52 @@ public static class DbInitializer
                 existingLoanUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("User123!");
                 existingLoanUser.IsActive = true;
                 existingLoanUser.Role = UserRole.User;
+            }
+        }
+
+        var existingMemberUser = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "member");
+        if (existingMemberUser == null)
+        {
+            logger.LogInformation("Seeding default Member self-service (member) account...");
+            existingMemberUser = new UserAccount
+            {
+                Username = "member",
+                Email = "member@coopis.org",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Member123!"),
+                Role = UserRole.Member,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.Users.Add(existingMemberUser);
+        }
+        else
+        {
+            bool validMemberPass = false;
+            try
+            {
+                validMemberPass = BCrypt.Net.BCrypt.Verify("Member123!", existingMemberUser.PasswordHash);
+            }
+            catch
+            {
+                validMemberPass = false;
+            }
+
+            if (!validMemberPass || !existingMemberUser.IsActive || existingMemberUser.Role != UserRole.Member)
+            {
+                existingMemberUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Member123!");
+                existingMemberUser.IsActive = true;
+                existingMemberUser.Role = UserRole.Member;
+            }
+        }
+
+        if (!existingMemberUser.MemberId.HasValue)
+        {
+            var demoMember = await context.Members
+                .OrderBy(m => m.MemberCode)
+                .FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE);
+            if (demoMember != null)
+            {
+                existingMemberUser.MemberId = demoMember.Id;
             }
         }
 
@@ -406,6 +462,19 @@ public static class DbInitializer
             }
             await context.SaveChangesAsync();
             logger.LogInformation("Converted {Count} contributions from PAYROLL_DEDUCTION to CASH.", payrollContributions.Count);
+        }
+
+        // Ensure demo member user has a linked MemberId
+        var memberAcc = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "member");
+        if (memberAcc != null && !memberAcc.MemberId.HasValue)
+        {
+            var firstMember = await context.Members.OrderBy(m => m.MemberCode).FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE);
+            if (firstMember != null)
+            {
+                memberAcc.MemberId = firstMember.Id;
+                await context.SaveChangesAsync();
+                logger.LogInformation("Linked demo member user to member '{MemberCode}' ({Name}).", firstMember.MemberCode, $"{firstMember.FirstName} {firstMember.LastName}");
+            }
         }
     }
 

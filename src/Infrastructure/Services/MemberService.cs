@@ -85,7 +85,9 @@ public class MemberService : IMemberService
                 m.CreatedAt,
                 m.UpdatedAt,
                 m.Contributions.Sum(c => (decimal?)c.Amount) ?? 0m,
-                m.Loans.Count(l => l.Status == LoanStatus.ACTIVE || l.Status == LoanStatus.APPROVED)
+                m.Loans.Count(l => l.Status == LoanStatus.ACTIVE || l.Status == LoanStatus.APPROVED),
+                _context.Users.Where(u => u.MemberId == m.Id).Select(u => u.Username).FirstOrDefault(),
+                _context.Users.Where(u => u.MemberId == m.Id).Select(u => (Guid?)u.Id).FirstOrDefault()
             ))
             .ToListAsync(cancellationToken);
 
@@ -157,6 +159,10 @@ public class MemberService : IMemberService
         var totalActiveLoanBalance = activeLoans.Sum(l => l.RemainingBalance);
         var activeLoansCount = activeLoans.Count;
 
+        var linkedUser = await _context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.MemberId == member.Id, cancellationToken);
+
         return new MemberDetailDto(
             member.Id,
             member.MemberCode,
@@ -173,7 +179,9 @@ public class MemberService : IMemberService
             contributionItems,
             totalActiveLoanBalance,
             activeLoansCount,
-            loanItems
+            loanItems,
+            linkedUser?.Username,
+            linkedUser?.Id
         );
     }
 

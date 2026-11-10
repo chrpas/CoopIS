@@ -55,47 +55,53 @@ export const AppLayout: React.FC = () => {
     navigate("/login");
   };
 
-  const navItems = [
+  const isMember = user?.role === "Member";
+  const isAdmin = user?.role === "Admin";
+  const isSettingsActive = location.pathname.startsWith("/settings");
+
+  const allNavItems = [
     {
-      label: "Dashboard",
+      label: isMember ? "My Dashboard" : "Dashboard",
       path: "/dashboard",
       icon: LayoutDashboard,
-      adminOnly: true,
+      allowedRoles: ["Admin", "Member"] as const,
     },
     {
       label: "Member Registry",
       path: "/members",
       icon: Users,
-      adminOnly: false,
+      allowedRoles: ["Admin", "User"] as const,
     },
     {
-      label: "Contributions",
+      label: isMember ? "My Contributions" : "Contributions",
       path: "/contributions",
       icon: Wallet,
-      adminOnly: true,
+      allowedRoles: ["Admin", "Member"] as const,
     },
     {
-      label: "Loan Management",
+      label: isMember ? "My Loans" : "Loan Management",
       path: "/loans",
       icon: HandCoins,
-      adminOnly: false,
+      allowedRoles: ["Admin", "User", "Member"] as const,
     },
     {
       label: "Bank Reconciliation",
       path: "/accounting",
       icon: Scale,
-      adminOnly: true,
+      allowedRoles: ["Admin"] as const,
     },
     {
       label: "Surplus Distribution",
       path: "/distribution",
       icon: PieChart,
-      adminOnly: true,
+      allowedRoles: ["Admin"] as const,
     },
   ];
 
-  const isAdmin = user?.role === "Admin";
-  const isSettingsActive = location.pathname.startsWith("/settings");
+  const currentRole = user?.role || "User";
+  const navItems = allNavItems.filter((item) =>
+    (item.allowedRoles as readonly string[]).includes(currentRole)
+  );
 
   return (
     <div className="h-screen overflow-hidden flex bg-slate-50 text-slate-800">
@@ -153,7 +159,6 @@ export const AppLayout: React.FC = () => {
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
-                  const isRestrictedForUser = !isAdmin && item.adminOnly;
 
                   return (
                     <Link
@@ -163,8 +168,6 @@ export const AppLayout: React.FC = () => {
                       className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                         isActive
                           ? "bg-emerald-600 text-white shadow-sm"
-                          : isRestrictedForUser
-                          ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
                           : "text-slate-300 hover:text-white hover:bg-slate-800"
                       }`}
                     >
@@ -176,11 +179,6 @@ export const AppLayout: React.FC = () => {
                         />
                         <span className="truncate">{item.label}</span>
                       </div>
-                      {isRestrictedForUser && (
-                        <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                          Admin
-                        </span>
-                      )}
                       {isActive && (
                         <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />
                       )}
@@ -230,7 +228,18 @@ export const AppLayout: React.FC = () => {
                 {user?.username.slice(0, 2).toUpperCase()}
               </div>
               <div className="overflow-hidden">
-                <div className="text-xs font-semibold text-white truncate">{user?.username}</div>
+                <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
+                  <span>{user?.username}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                    user?.role === "Admin"
+                      ? "bg-purple-900/60 text-purple-300 border-purple-700/60"
+                      : user?.role === "Member"
+                      ? "bg-sky-900/60 text-sky-300 border-sky-700/60"
+                      : "bg-blue-900/60 text-blue-300 border-blue-700/60"
+                  }`}>
+                    {user?.role === "Admin" ? "Admin" : user?.role === "Member" ? "Members" : "Loan Officers"}
+                  </span>
+                </div>
                 <div className="text-[11px] text-slate-400 truncate">{user?.email}</div>
               </div>
             </div>
@@ -306,7 +315,6 @@ export const AppLayout: React.FC = () => {
                 {navItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path;
-                  const isRestrictedForUser = !isAdmin && item.adminOnly;
 
                   return (
                     <Link
@@ -318,8 +326,6 @@ export const AppLayout: React.FC = () => {
                       } rounded-lg text-sm font-medium transition-colors ${
                         isActive
                           ? "bg-emerald-600 text-white shadow-sm"
-                          : isRestrictedForUser
-                          ? "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
                           : "text-slate-300 hover:text-white hover:bg-slate-800"
                       }`}
                     >
@@ -331,11 +337,6 @@ export const AppLayout: React.FC = () => {
                         />
                         {!isCollapsed && <span className="truncate">{item.label}</span>}
                       </div>
-                      {!isCollapsed && isRestrictedForUser && (
-                        <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                          Admin
-                        </span>
-                      )}
                       {!isCollapsed && isActive && (
                         <ChevronRight className="w-3.5 h-3.5 opacity-80 shrink-0" />
                       )}
@@ -397,7 +398,18 @@ export const AppLayout: React.FC = () => {
               </div>
               {!isCollapsed && (
                 <div className="overflow-hidden">
-                  <div className="text-xs font-semibold text-white truncate">{user?.username}</div>
+                  <div className="text-xs font-semibold text-white truncate flex items-center gap-1.5">
+                    <span>{user?.username}</span>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                      user?.role === "Admin"
+                        ? "bg-purple-900/60 text-purple-300 border-purple-700/60"
+                        : user?.role === "Member"
+                        ? "bg-sky-900/60 text-sky-300 border-sky-700/60"
+                        : "bg-blue-900/60 text-blue-300 border-blue-700/60"
+                    }`}>
+                      {user?.role === "Admin" ? "Admin" : user?.role === "Member" ? "Members" : "Loan Officers"}
+                    </span>
+                  </div>
                   <div className="text-[11px] text-slate-400 truncate">{user?.email}</div>
                 </div>
               )}
@@ -442,21 +454,29 @@ export const AppLayout: React.FC = () => {
             <div
               className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-semibold ${
                 isAdmin
-                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                  : "bg-amber-100 text-amber-800 border border-amber-300"
+                  ? "bg-purple-100 text-purple-800 border border-purple-300"
+                  : isMember
+                  ? "bg-sky-100 text-sky-800 border border-sky-300"
+                  : "bg-blue-100 text-blue-800 border border-blue-300"
               }`}
             >
               {isAdmin ? (
                 <>
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-                  <span className="hidden sm:inline">Role: Administrator</span>
+                  <ShieldCheck className="w-3.5 h-3.5 text-purple-700" />
+                  <span className="hidden sm:inline">Role: Admin</span>
                   <span className="sm:hidden">Admin</span>
+                </>
+              ) : isMember ? (
+                <>
+                  <Users className="w-3.5 h-3.5 text-sky-700" />
+                  <span className="hidden sm:inline">Role: Members</span>
+                  <span className="sm:hidden">Members</span>
                 </>
               ) : (
                 <>
-                  <UserCheck className="w-3.5 h-3.5 text-amber-700" />
-                  <span className="hidden sm:inline">Role: Loan Officer</span>
-                  <span className="sm:hidden">User</span>
+                  <UserCheck className="w-3.5 h-3.5 text-blue-700" />
+                  <span className="hidden sm:inline">Role: Loan Officers</span>
+                  <span className="sm:hidden">Loan Officers</span>
                 </>
               )}
             </div>

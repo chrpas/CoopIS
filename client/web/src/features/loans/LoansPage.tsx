@@ -48,6 +48,7 @@ interface MemberLoanGroup {
 
 export const LoansPage: React.FC = () => {
   const { user } = useAuth();
+  const isMember = user?.role === "Member";
   const queryClient = useQueryClient();
   const [showWizard, setShowWizard] = useState(false);
   const [selectedLoanForSchedule, setSelectedLoanForSchedule] = useState<Loan | null>(null);
@@ -64,9 +65,10 @@ export const LoansPage: React.FC = () => {
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   const { data: loans = [], isLoading } = useQuery<Loan[]>({
-    queryKey: ["loans"],
+    queryKey: isMember ? ["my-loans"] : ["loans"],
     queryFn: async () => {
-      const res = await api.get<Loan[]>("/loans");
+      const endpoint = isMember ? "/loans/my-loans" : "/loans";
+      const res = await api.get<Loan[]>(endpoint);
       return res.data;
     },
   });
@@ -94,6 +96,7 @@ export const LoansPage: React.FC = () => {
         return [];
       }
     },
+    enabled: !isMember,
   });
 
   const memberMap = useMemo(() => {
@@ -313,6 +316,48 @@ export const LoansPage: React.FC = () => {
     [memberGroups]
   );
 
+  // Member Personal Metrics
+  const memberActiveLoans = useMemo(
+    () => loans.filter((l) => l.status === "ACTIVE" || l.status === "APPROVED"),
+    [loans]
+  );
+
+  const memberActivePrincipal = useMemo(
+    () => memberActiveLoans.reduce((sum, l) => sum + (Number(l.principalAmount) || 0), 0),
+    [memberActiveLoans]
+  );
+
+  const memberOutstandingBalance = useMemo(
+    () =>
+      memberActiveLoans.reduce((sum, l) => {
+        const paid = Number(l.principalPaid ?? l.totalRepayments ?? 0);
+        return sum + Math.max(0, (Number(l.principalAmount) || 0) - paid);
+      }, 0),
+    [memberActiveLoans]
+  );
+
+  const memberNextCutoffDue = useMemo(
+    () =>
+      memberActiveLoans.reduce((sum, l) => sum + (Number(l.cutoffPaymentAmount) || 0), 0),
+    [memberActiveLoans]
+  );
+
+  const filteredMemberLoans = useMemo(() => {
+    if (!searchTerm.trim()) return loans;
+    const term = searchTerm.toLowerCase();
+    return loans.filter(
+      (l) =>
+        l.loanReference.toLowerCase().includes(term) ||
+        (l.notes && l.notes.toLowerCase().includes(term)) ||
+        l.status.toLowerCase().includes(term)
+    );
+  }, [loans, searchTerm]);
+
+  const paginatedMemberLoans = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredMemberLoans.slice(start, start + pageSize);
+  }, [filteredMemberLoans, page, pageSize]);
+
   const toggleExpandMember = (memberId: string) => {
     setExpandedMemberIds((prev) => ({
       ...prev,
@@ -380,89 +425,264 @@ export const LoansPage: React.FC = () => {
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-              Loan Management & Member Portfolios
+              {isMember ? "My Loan Accounts & Repayments" : "Loan Management & Member Portfolios"}
             </h2>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Cooperative Lending Service
+              {isMember ? "Member Self-Service" : "Cooperative Lending Service"}
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Distinct active borrowers directory. Expand any member row to inspect their complete loan portfolio and payment history.
+            {isMember
+              ? "Review your personal loan accounts, amortization schedule timeline, and payment history."
+              : "Distinct active borrowers directory. Expand any member row to inspect their complete loan portfolio and payment history."}
           </p>
         </div>
 
-        <button
-          onClick={() => setShowWizard(true)}
-          className="w-full sm:w-auto justify-center inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-sm transition-all hover:shadow-md cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          Originate Loan (Wizard)
-        </button>
+        {!isMember && (
+          <button
+            onClick={() => setShowWizard(true)}
+            className="w-full sm:w-auto justify-center inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-xl shadow-sm transition-all hover:shadow-md cursor-pointer shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            Originate Loan (Wizard)
+          </button>
+        )}
       </div>
 
       {/* Loan Policy & Portfolio Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase">
-            Active Borrowers
+      {isMember ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Total Active Borrowed Principal
+            </div>
+            <div className="text-xl font-extrabold text-slate-900 mt-1 font-mono">
+              {formatCurrency(memberActivePrincipal)}
+            </div>
+            <div className="text-xs text-slate-500 mt-0.5">
+              Across {memberActiveLoans.length} active loan account{memberActiveLoans.length === 1 ? "" : "s"}
+            </div>
           </div>
-          <div className="text-base font-extrabold text-slate-900 mt-0.5">
-            {activeBorrowersCount} Members
+
+          <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Current Outstanding Balance
+            </div>
+            <div className="text-xl font-extrabold text-emerald-700 mt-1 font-mono">
+              {formatCurrency(memberOutstandingBalance)}
+            </div>
+            <div className="text-xs text-emerald-600 mt-0.5">
+              Remaining principal to repay
+            </div>
           </div>
-          <div className="text-[11px] text-slate-500">
-            Holding active loan accounts
+
+          <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              Next Cutoff Installment Due
+            </div>
+            <div className="text-xl font-extrabold text-indigo-700 mt-1 font-mono">
+              {formatCurrency(memberNextCutoffDue)}
+            </div>
+            <div className="text-xs text-indigo-600 mt-0.5">
+              Semi-monthly payroll deduction
+            </div>
           </div>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase">
+              Active Borrowers
+            </div>
+            <div className="text-base font-extrabold text-slate-900 mt-0.5">
+              {activeBorrowersCount} Members
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Holding active loan accounts
+            </div>
+          </div>
 
-        <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase">
-            Total Active Balance
+          <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase">
+              Total Active Balance
+            </div>
+            <div className="text-base font-extrabold text-emerald-700 mt-0.5 font-mono">
+              {formatCurrency(totalActivePortfolioBalance)}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Outstanding principal receivable
+            </div>
           </div>
-          <div className="text-base font-extrabold text-emerald-700 mt-0.5 font-mono">
-            {formatCurrency(totalActivePortfolioBalance)}
+
+          <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase">
+              Upfront Interest Policy
+            </div>
+            <div className="text-base font-bold text-amber-700 mt-0.5">
+              {activeInterestPercent.toFixed(2)}% Flat
+            </div>
+            <div className="text-[11px] text-slate-500">Deducted at Release</div>
           </div>
-          <div className="text-[11px] text-slate-500">
-            Outstanding principal receivable
+
+          <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-slate-400 uppercase">
+              Total Portfolio Records
+            </div>
+            <div className="text-base font-bold text-slate-900 mt-0.5">
+              {loans.length} Loans
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Across {memberGroups.length} members
+            </div>
+          </div>
+
+          <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl shadow-xs">
+            <div className="text-[11px] font-semibold text-amber-800 uppercase flex items-center justify-between">
+              <span>Late Penalties</span>
+              <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold">
+                {activePenaltyPercent}% Rate
+              </span>
+            </div>
+            <div className="text-base font-extrabold text-amber-950 mt-0.5 font-mono">
+              {formatCurrency(totalLatePenaltiesCollected)}
+            </div>
+            <div className="text-[11px] text-amber-700">Cumulative Co-op Income</div>
           </div>
         </div>
+      )}
 
-        <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase">
-            Upfront Interest Policy
+      {/* Member Loan Table vs Admin Master-Detail Borrower Table */}
+      {isMember ? (
+        <div className="space-y-4">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search by loan reference (LN-...) or notes..."
+                className="w-full pl-10 pr-9 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm("");
+                    setPage(1);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
-          <div className="text-base font-bold text-amber-700 mt-0.5">
-            {activeInterestPercent.toFixed(2)}% Flat
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            {isLoading ? (
+              <div className="p-16 text-center text-sm text-slate-500 flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                <span>Loading your loan accounts...</span>
+              </div>
+            ) : filteredMemberLoans.length === 0 ? (
+              <div className="p-16 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                  <HandCoins className="w-6 h-6" />
+                </div>
+                <h4 className="text-base font-bold text-slate-900">
+                  No Loan Records Found
+                </h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  You do not have any active or past loan records associated with your member account.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead className="bg-slate-50 text-[11px] font-bold text-slate-600 uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3.5 px-4">Loan Reference</th>
+                      <th className="py-3.5 px-4">Origination Date</th>
+                      <th className="py-3.5 px-4">Term & Cutoffs</th>
+                      <th className="py-3.5 px-4 text-right">Principal</th>
+                      <th className="py-3.5 px-4 text-right">Cutoff Payment</th>
+                      <th className="py-3.5 px-4 text-right">Principal Paid</th>
+                      <th className="py-3.5 px-4 text-right">Outstanding Balance</th>
+                      <th className="py-3.5 px-4 text-center">Status</th>
+                      <th className="py-3.5 px-4 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {paginatedMemberLoans.map((l) => {
+                      const paid = Number(l.principalPaid ?? l.totalRepayments ?? 0);
+                      const rem = Math.max(0, (Number(l.principalAmount) || 0) - paid);
+                      return (
+                        <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
+                            {l.loanReference}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600 text-xs">
+                            {new Date(l.originationDate).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-700">
+                            {l.termMonths} mos / {l.cutoffsCount} cutoffs
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900">
+                            {formatCurrency(Number(l.principalAmount) || 0)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-slate-700">
+                            {formatCurrency(Number(l.cutoffPaymentAmount) || 0)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-emerald-700 font-bold">
+                            {formatCurrency(paid)}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono text-slate-900 font-bold">
+                            {formatCurrency(rem)}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            {getStatusBadge(l.status)}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedLoanForSchedule(l)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                              View Schedule
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {!isLoading && filteredMemberLoans.length > 0 && (
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={filteredMemberLoans.length}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+                itemLabel="loans"
+              />
+            )}
           </div>
-          <div className="text-[11px] text-slate-500">Deducted at Release</div>
         </div>
-
-        <div className="p-3.5 bg-white border border-slate-200 rounded-xl shadow-xs">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase">
-            Total Portfolio Records
-          </div>
-          <div className="text-base font-bold text-slate-900 mt-0.5">
-            {loans.length} Loans
-          </div>
-          <div className="text-[11px] text-slate-500">
-            Across {memberGroups.length} members
-          </div>
-        </div>
-
-        <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl shadow-xs">
-          <div className="text-[11px] font-semibold text-amber-800 uppercase flex items-center justify-between">
-            <span>Late Penalties</span>
-            <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.2 rounded font-bold">
-              {activePenaltyPercent}% Rate
-            </span>
-          </div>
-          <div className="text-base font-extrabold text-amber-950 mt-0.5 font-mono">
-            {formatCurrency(totalLatePenaltiesCollected)}
-          </div>
-          <div className="text-[11px] text-amber-700">Cumulative Co-op Income</div>
-        </div>
-      </div>
-
-      {/* Filter & Search Toolbar */}
+      ) : (
+        <>
+          {/* Filter & Search Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -964,6 +1184,8 @@ export const LoansPage: React.FC = () => {
           />
         )}
       </div>
+        </>
+      )}
 
       {/* Loan Origination Wizard Modal */}
       <LoanOriginationWizard

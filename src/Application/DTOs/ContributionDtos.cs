@@ -50,3 +50,40 @@ public record ContributionSummaryDto(
     decimal AverageContributionPerMember,
     List<MemberContributionSummaryDto> MemberContributions
 );
+
+public record MemberCutoffIndicatorDto(
+    Guid CutoffId,
+    string Label,
+    int CutoffNumber,
+    DateTime CutoffDate,
+    int FiscalYear,
+    string Status,
+    decimal? Amount,
+    PaymentChannel? PaymentChannel,
+    DateTime? RecordedAt,
+    int DaysLate,
+    decimal LatePenaltyAmount
+);
+
+public record MemberStatementDto(
+    Guid MemberId,
+    string MemberCode,
+    string MemberName,
+    string Email,
+    decimal TotalAccumulatedCapital,
+    int OnTimeRemittancesCount,
+    int OverdueMissedCutoffsCount,
+    int TotalContributedCutoffsCount,
+    decimal TotalContributionPenalties,
+    List<MemberCutoffIndicatorDto> CutoffSchedule,
+    List<MemberContributionItemDto> RemittanceLedger
+)
+{
+    public string FullName => MemberName;
+    public decimal TotalAccumulated => TotalAccumulatedCapital;
+    public int OnTimeCount => OnTimeRemittancesCount;
+    public int OverdueCount => OverdueMissedCutoffsCount;
+    public int ContributedCount => TotalContributedCutoffsCount;
+    public decimal TotalPenalties => TotalContributionPenalties;
+    public List<MemberCutoffIndicatorDto> Schedule => CutoffSchedule;
+};

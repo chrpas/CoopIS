@@ -33,7 +33,9 @@ public record MemberDto(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     decimal TotalContributions = 0,
-    int ActiveLoansCount = 0
+    int ActiveLoansCount = 0,
+    string? LinkedUsername = null,
+    Guid? LinkedUserId = null
 );
 
 public record MemberContributionItemDto(
@@ -78,7 +80,9 @@ public record MemberDetailDto(
     List<MemberContributionItemDto> Contributions,
     decimal TotalActiveLoanBalance,
     int ActiveLoansCount,
-    List<MemberLoanSummaryDto> Loans
+    List<MemberLoanSummaryDto> Loans,
+    string? LinkedUsername = null,
+    Guid? LinkedUserId = null
 );
 
 public record CreateMemberRequest(

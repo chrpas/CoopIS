@@ -61,7 +61,22 @@ export const SettingsPage: React.FC = () => {
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [deletingUser, setDeletingUser] = useState<UserAccount | null>(null);
   const [roleChangeUser, setRoleChangeUser] = useState<UserAccount | null>(null);
+  const [roleChangeSelectedRole, setRoleChangeSelectedRole] = useState<UserRole>("User");
+  const [roleChangeMemberId, setRoleChangeMemberId] = useState<string>("");
+  const [memberOptions, setMemberOptions] = useState<Array<{ id: string; memberCode: string; firstName: string; lastName: string }>>([]);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  useEffect(() => {
+    if (roleChangeUser) {
+      setRoleChangeSelectedRole(roleChangeUser.role);
+      setRoleChangeMemberId(roleChangeUser.memberId || "");
+      if (memberOptions.length === 0) {
+        api.get("/members?pageSize=200").then((res) => {
+          setMemberOptions(res.data?.items || []);
+        });
+      }
+    }
+  }, [roleChangeUser, memberOptions.length]);
 
   // Fiscal Year & Cutoff Schedule Generator state
   const [targetFiscalYearInput, setTargetFiscalYearInput] = useState<string>("");
@@ -323,8 +338,9 @@ export const SettingsPage: React.FC = () => {
     const total = users.length;
     const active = users.filter((u) => u.isActive).length;
     const admins = users.filter((u) => u.role === "Admin").length;
-    const standardUsers = users.filter((u) => u.role === "User").length;
-    return { total, active, admins, standardUsers };
+    const loanOfficers = users.filter((u) => u.role === "User").length;
+    const memberUsers = users.filter((u) => u.role === "Member").length;
+    return { total, active, admins, loanOfficers, memberUsers };
   }, [users]);
 
   // Toggle active status
@@ -369,8 +385,12 @@ export const SettingsPage: React.FC = () => {
   };
 
   // Change user role
-  const handleRoleChange = async (userItem: UserAccount, newRole: UserRole) => {
-    if (userItem.role === newRole) {
+  const handleRoleChange = async (
+    userItem: UserAccount,
+    newRole: UserRole,
+    memberId?: string | null
+  ) => {
+    if (userItem.role === newRole && (newRole !== "Member" || userItem.memberId === memberId)) {
       setRoleChangeUser(null);
       return;
     }
@@ -393,16 +413,31 @@ export const SettingsPage: React.FC = () => {
       return;
     }
 
+    if (newRole === "Member" && !memberId) {
+      setFeedback({
+        type: "error",
+        message: "Please select a cooperative member record to link this self-service account to.",
+      });
+      return;
+    }
+
     try {
       setUpdatingUserId(userItem.id);
       const updated = await userService.updateUserRoleOrStatus(userItem.id, {
         role: newRole,
+        memberId: newRole === "Member" ? memberId : null,
       });
 
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       setFeedback({
         type: "success",
-        message: `User '${userItem.username}' role changed to ${newRole}.`,
+        message: `User '${userItem.username}' role changed to ${
+          newRole === "User"
+            ? "Loan Officer (User)"
+            : newRole === "Member"
+            ? "Member (Self-Service)"
+            : "Administrator"
+        }.`,
       });
       setRoleChangeUser(null);
     } catch (err: any) {
@@ -564,9 +599,9 @@ export const SettingsPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Operators</p>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total Accounts</p>
                 <p className="text-2xl font-bold text-slate-900 mt-1">{metrics.total}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Registered accounts</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Registered system logins</p>
               </div>
               <div className="w-11 h-11 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center">
                 <Users className="w-5 h-5" />
@@ -575,18 +610,7 @@ export const SettingsPage: React.FC = () => {
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Active Operators</p>
-                <p className="text-2xl font-bold text-emerald-600 mt-1">{metrics.active}</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">Can login to system</p>
-              </div>
-              <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Administrators</p>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Admin</p>
                 <p className="text-2xl font-bold text-purple-700 mt-1">{metrics.admins}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">Full financial authority</p>
               </div>
@@ -597,12 +621,23 @@ export const SettingsPage: React.FC = () => {
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
               <div>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Loan Officers (Users)</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{metrics.standardUsers}</p>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Loan Officers</p>
+                <p className="text-2xl font-bold text-blue-600 mt-1">{metrics.loanOfficers}</p>
                 <p className="text-[11px] text-slate-400 mt-0.5">Front-line operations</p>
               </div>
               <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                 <UserCheck className="w-5 h-5" />
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Members</p>
+                <p className="text-2xl font-bold text-sky-600 mt-1">{metrics.memberUsers}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">Self-service portal access</p>
+              </div>
+              <div className="w-11 h-11 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+                <Users className="w-5 h-5" />
               </div>
             </div>
           </div>
@@ -633,8 +668,9 @@ export const SettingsPage: React.FC = () => {
                 className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-semibold text-slate-700"
               >
                 <option value="ALL">All Roles</option>
-                <option value="Admin">Administrator</option>
-                <option value="User">Loan Officer</option>
+                <option value="Admin">Admin</option>
+                <option value="User">Loan Officers</option>
+                <option value="Member">Members</option>
               </select>
 
               {/* Status filter */}
@@ -708,6 +744,8 @@ export const SettingsPage: React.FC = () => {
                                 className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold border shadow-xs ${
                                   item.role === "Admin"
                                     ? "bg-purple-100 text-purple-700 border-purple-200"
+                                    : item.role === "Member"
+                                    ? "bg-sky-100 text-sky-700 border-sky-200"
                                     : "bg-blue-100 text-blue-700 border-blue-200"
                                 }`}
                               >
@@ -745,12 +783,24 @@ export const SettingsPage: React.FC = () => {
                               {item.role === "Admin" ? (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
                                   <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-                                  Administrator
+                                  Admin
                                 </span>
+                              ) : item.role === "Member" ? (
+                                <div className="flex flex-col">
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800 border border-sky-200 w-fit">
+                                    <Users className="w-3.5 h-3.5 text-sky-600" />
+                                    Members
+                                  </span>
+                                  {item.memberCode && (
+                                    <span className="text-[10px] text-slate-500 font-medium mt-0.5">
+                                      Linked: {item.memberName || item.memberCode} ({item.memberCode})
+                                    </span>
+                                  )}
+                                </div>
                               ) : (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
                                   <UserCheck className="w-3.5 h-3.5 text-blue-600" />
-                                  Loan Officer (User)
+                                  Loan Officers
                                 </span>
                               )}
 
@@ -1410,7 +1460,7 @@ export const SettingsPage: React.FC = () => {
             <div className="p-6 border-b border-slate-100">
               <h3 className="text-base font-bold text-slate-900">Role-Based Access Control (RBAC) Matrix</h3>
               <p className="text-xs text-slate-500">
-                Comparison of functional capabilities between the Administrator and Loan Officer (User) roles
+                Functional capability comparison across the three system roles: Admin, Loan Officers, and Members
               </p>
             </div>
 
@@ -1420,8 +1470,9 @@ export const SettingsPage: React.FC = () => {
                   <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                     <th className="py-3 px-6">System Module</th>
                     <th className="py-3 px-4">Capability / Scope</th>
-                    <th className="py-3 px-4 text-center">Administrator</th>
-                    <th className="py-3 px-4 text-center">Loan Officer (User)</th>
+                    <th className="py-3 px-4 text-center">Admin</th>
+                    <th className="py-3 px-4 text-center">Loan Officers</th>
+                    <th className="py-3 px-4 text-center">Members</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1436,6 +1487,11 @@ export const SettingsPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
                         ✕ Restricted
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
+                        <CheckCircle2 className="w-4 h-4" /> Personal KPIs
                       </span>
                     </td>
                   </tr>
@@ -1453,6 +1509,11 @@ export const SettingsPage: React.FC = () => {
                         <UserCheck className="w-3.5 h-3.5" /> Read-Only Directory
                       </span>
                     </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
+                        <CheckCircle2 className="w-4 h-4" /> Personal Profile
+                      </span>
+                    </td>
                   </tr>
 
                   <tr>
@@ -1466,6 +1527,11 @@ export const SettingsPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
                         ✕ Restricted
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
+                        <CheckCircle2 className="w-4 h-4" /> Personal Statement
                       </span>
                     </td>
                   </tr>
@@ -1483,6 +1549,11 @@ export const SettingsPage: React.FC = () => {
                         <CheckCircle2 className="w-4 h-4" /> Process Repayments
                       </span>
                     </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
+                        <CheckCircle2 className="w-4 h-4" /> View My Loans
+                      </span>
+                    </td>
                   </tr>
 
                   <tr>
@@ -1491,6 +1562,11 @@ export const SettingsPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 text-emerald-600 font-bold">
                         <CheckCircle2 className="w-4 h-4" /> Full Control
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
+                        ✕ Restricted
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
@@ -1513,6 +1589,11 @@ export const SettingsPage: React.FC = () => {
                         ✕ Restricted
                       </span>
                     </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
+                        ✕ Restricted
+                      </span>
+                    </td>
                   </tr>
 
                   <tr>
@@ -1521,6 +1602,11 @@ export const SettingsPage: React.FC = () => {
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 text-emerald-600 font-bold">
                         <CheckCircle2 className="w-4 h-4" /> Master Admin
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
+                        ✕ Restricted
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
@@ -1549,53 +1635,113 @@ export const SettingsPage: React.FC = () => {
       {/* CHANGE ROLE DIALOG */}
       {roleChangeUser && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+          <div className="relative bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <h3 className="text-base font-bold text-slate-900 mb-1">Change Operator Role</h3>
             <p className="text-xs text-slate-500 mb-4">
               Select access tier for account <span className="font-bold text-slate-800">@{roleChangeUser.username}</span>
             </p>
 
-            <div className="space-y-2 mb-5">
+            <div className="space-y-2.5 mb-4">
               <button
                 type="button"
-                onClick={() => handleRoleChange(roleChangeUser, "User")}
+                onClick={() => setRoleChangeSelectedRole("Admin")}
                 className={`w-full p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
-                  roleChangeUser.role === "User"
-                    ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500/20"
-                    : "bg-slate-50 border-slate-200 hover:bg-slate-100"
-                }`}
-              >
-                <div>
-                  <div className="text-xs font-bold text-slate-900">Loan Officer (User)</div>
-                  <div className="text-[11px] text-slate-500">Access to members and loans</div>
-                </div>
-                {roleChangeUser.role === "User" && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleRoleChange(roleChangeUser, "Admin")}
-                className={`w-full p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
-                  roleChangeUser.role === "Admin"
+                  roleChangeSelectedRole === "Admin"
                     ? "bg-purple-50 border-purple-500 ring-2 ring-purple-500/20"
                     : "bg-slate-50 border-slate-200 hover:bg-slate-100"
                 }`}
               >
                 <div>
-                  <div className="text-xs font-bold text-slate-900">Administrator</div>
-                  <div className="text-[11px] text-slate-500">Full control over accounting and users</div>
+                  <div className="text-xs font-bold text-slate-900">Admin</div>
+                  <div className="text-[11px] text-slate-500">Full control over accounting, distribution and users</div>
                 </div>
-                {roleChangeUser.role === "Admin" && <CheckCircle2 className="w-4 h-4 text-purple-600" />}
+                {roleChangeSelectedRole === "Admin" && <CheckCircle2 className="w-4 h-4 text-purple-600" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRoleChangeSelectedRole("User")}
+                className={`w-full p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
+                  roleChangeSelectedRole === "User"
+                    ? "bg-blue-50 border-blue-500 ring-2 ring-blue-500/20"
+                    : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Loan Officers</div>
+                  <div className="text-[11px] text-slate-500">Access to members registry and loan processing</div>
+                </div>
+                {roleChangeSelectedRole === "User" && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setRoleChangeSelectedRole("Member")}
+                className={`w-full p-3 rounded-xl border flex items-center justify-between text-left transition-all ${
+                  roleChangeSelectedRole === "Member"
+                    ? "bg-sky-50 border-sky-500 ring-2 ring-sky-500/20"
+                    : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Members</div>
+                  <div className="text-[11px] text-slate-500">Personal share capital statement and loans portal</div>
+                </div>
+                {roleChangeSelectedRole === "Member" && <CheckCircle2 className="w-4 h-4 text-sky-600" />}
               </button>
             </div>
 
-            <div className="flex justify-end gap-2">
+            {roleChangeSelectedRole === "Member" && (
+              <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-xl mb-4 space-y-1.5">
+                <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider">
+                  Link Cooperative Member <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={roleChangeMemberId}
+                  onChange={(e) => setRoleChangeMemberId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-sky-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-600 font-semibold text-slate-800"
+                  required
+                >
+                  <option value="">-- Choose Member Record --</option>
+                  {memberOptions.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      [{m.memberCode}] {m.lastName}, {m.firstName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setRoleChangeUser(null)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-xl"
               >
                 Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleRoleChange(roleChangeUser, roleChangeSelectedRole, roleChangeMemberId)
+                }
+                disabled={
+                  updatingUserId === roleChangeUser.id ||
+                  (roleChangeSelectedRole === "Member" && !roleChangeMemberId)
+                }
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {updatingUserId === roleChangeUser.id ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    Apply Role Change
+                  </>
+                )}
               </button>
             </div>
           </div>

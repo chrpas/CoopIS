@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
-import { Landmark, Shield, User, Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
+import { Landmark, Shield, User, UserCheck, Users, Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, RefreshCw } from "lucide-react";
 
 type BackendHealth = "checking" | "online" | "offline";
 
@@ -77,7 +77,7 @@ export const LoginPage: React.FC = () => {
       const origin = (location.state as { from?: { pathname: string } })?.from?.pathname;
       if (origin && origin !== "/login") {
         navigate(origin, { replace: true });
-      } else if (loggedUser.role === "Admin") {
+      } else if (loggedUser.role === "Admin" || loggedUser.role === "Member") {
         navigate("/dashboard", { replace: true });
       } else {
         navigate("/loans", { replace: true });
@@ -117,6 +117,13 @@ export const LoginPage: React.FC = () => {
     setUsername("loanuser");
     setPassword("User123!");
     handleLoginSubmit(undefined, "loanuser", "User123!");
+  };
+
+  const handleQuickMemberLogin = () => {
+    if (backendHealth !== "online" || loading) return;
+    setUsername("member");
+    setPassword("Member123!");
+    handleLoginSubmit(undefined, "member", "Member123!");
   };
 
   const isInitializing = backendHealth === "checking";
@@ -249,9 +256,9 @@ export const LoginPage: React.FC = () => {
           {/* Demo Quick-Login Buttons Section */}
           <div className="mt-8 pt-6 border-t border-slate-200">
             <p className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-              One-Click Demo Credentials
+              One-Click Demo Credentials by Role
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <button
                 type="button"
                 onClick={handleQuickAdminLogin}
@@ -259,14 +266,14 @@ export const LoginPage: React.FC = () => {
                 className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
                   isActionDisabled
                     ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
-                    : "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/80 active:bg-emerald-200 text-emerald-900 cursor-pointer"
+                    : "border-purple-200 bg-purple-50/70 hover:bg-purple-100/80 active:bg-purple-200 text-purple-900 cursor-pointer"
                 }`}
               >
                 <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <Shield className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-emerald-600"}`} />
-                  Login as Admin
+                  <Shield className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-purple-600"}`} />
+                  Admin
                 </div>
-                <span className="text-[11px] mt-0.5">Full System Access</span>
+                <span className="text-[11px] mt-0.5 text-purple-700/80">Full System Control</span>
               </button>
 
               <button
@@ -276,14 +283,31 @@ export const LoginPage: React.FC = () => {
                 className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
                   isActionDisabled
                     ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
-                    : "border-amber-200 bg-amber-50/70 hover:bg-amber-100/80 active:bg-amber-200 text-amber-900 cursor-pointer"
+                    : "border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 active:bg-blue-200 text-blue-900 cursor-pointer"
                 }`}
               >
                 <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <User className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-amber-600"}`} />
-                  Login as User
+                  <UserCheck className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-blue-600"}`} />
+                  Loan Officers
                 </div>
-                <span className="text-[11px] mt-0.5">Loan Management Only</span>
+                <span className="text-[11px] mt-0.5 text-blue-700/80">Loans & Repayments</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleQuickMemberLogin}
+                disabled={isActionDisabled}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                  isActionDisabled
+                    ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
+                    : "border-sky-200 bg-sky-50/70 hover:bg-sky-100/80 active:bg-sky-200 text-sky-900 cursor-pointer"
+                }`}
+              >
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <Users className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-sky-600"}`} />
+                  Members
+                </div>
+                <span className="text-[11px] mt-0.5 text-sky-700/80">Self-Service Portal</span>
               </button>
             </div>
           </div>

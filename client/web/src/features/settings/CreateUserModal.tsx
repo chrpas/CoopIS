@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   X,
   UserPlus,
@@ -11,7 +11,9 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
+  Users,
 } from "lucide-react";
+import { api } from "../../services/api";
 import { UserRole, CreateUserPayload } from "../../types";
 
 interface CreateUserModalProps {
@@ -30,10 +32,44 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState<UserRole>("User");
+  const [selectedMemberId, setSelectedMemberId] = useState<string>("");
+  const [membersList, setMembersList] = useState<Array<{ id: string; memberCode: string; firstName: string; lastName: string; email: string }>>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load members when role is Member
+  useEffect(() => {
+    if (isOpen && role === "Member" && membersList.length === 0) {
+      setIsLoadingMembers(true);
+      api
+        .get("/members?pageSize=200")
+        .then((res) => {
+          setMembersList(res.data?.items || []);
+        })
+        .catch((err) => {
+          console.error("Failed to load members for account linking", err);
+        })
+        .finally(() => {
+          setIsLoadingMembers(false);
+        });
+    }
+  }, [isOpen, role, membersList.length]);
+
+  const handleMemberSelect = (memberId: string) => {
+    setSelectedMemberId(memberId);
+    const selected = membersList.find((m) => m.id === memberId);
+    if (selected) {
+      if (!username || username.startsWith("mem_") || membersList.some((m) => m.memberCode.toLowerCase() === username)) {
+        setUsername(selected.memberCode.toLowerCase());
+      }
+      if (!email || membersList.some((m) => m.email === email)) {
+        setEmail(selected.email);
+      }
+    }
+  };
 
   // Password strength calculation
   const passwordCriteria = useMemo(() => {
@@ -86,6 +122,11 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
       return;
     }
 
+    if (role === "Member" && !selectedMemberId) {
+      setError("Please select an existing cooperative member to link this login account to.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await onSubmit({
@@ -93,6 +134,7 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
         email: email.trim(),
         password,
         role,
+        memberId: role === "Member" ? selectedMemberId : null,
       });
       // Reset form
       setUsername("");
@@ -100,6 +142,7 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
       setPassword("");
       setConfirmPassword("");
       setRole("User");
+      setSelectedMemberId("");
       onClose();
     } catch (err: any) {
       const msg = err.response?.data?.detail || err.response?.data?.message || err.message || "Failed to create user.";
@@ -186,10 +229,29 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
               Access Role <span className="text-rose-500">*</span>
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <div
+                onClick={() => setRole("Admin")}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  role === "Admin"
+                    ? "bg-purple-50/60 border-purple-500 ring-2 ring-purple-500/20 shadow-xs"
+                    : "bg-slate-50 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <ShieldCheck className={`w-4 h-4 ${role === "Admin" ? "text-purple-600" : "text-slate-400"}`} />
+                  <span className={`text-xs font-bold ${role === "Admin" ? "text-purple-900" : "text-slate-700"}`}>
+                    Admin
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Full control over ledger, settings & users.
+                </p>
+              </div>
+
               <div
                 onClick={() => setRole("User")}
-                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
                   role === "User"
                     ? "bg-blue-50/60 border-blue-500 ring-2 ring-blue-500/20 shadow-xs"
                     : "bg-slate-50 border-slate-200 hover:bg-slate-100"
@@ -197,35 +259,64 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
               >
                 <div className="flex items-center gap-2 mb-1">
                   <User className={`w-4 h-4 ${role === "User" ? "text-blue-600" : "text-slate-400"}`} />
-                  <span className={`text-sm font-bold ${role === "User" ? "text-blue-900" : "text-slate-700"}`}>
-                    Loan Officer (User)
+                  <span className={`text-xs font-bold ${role === "User" ? "text-blue-900" : "text-slate-700"}`}>
+                    Loan Officers
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Can view members & process loan repayments/applications.
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Back-office: manage loans & repayments.
                 </p>
               </div>
 
               <div
-                onClick={() => setRole("Admin")}
-                className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
-                  role === "Admin"
-                    ? "bg-emerald-50/60 border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs"
+                onClick={() => setRole("Member")}
+                className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                  role === "Member"
+                    ? "bg-sky-50/70 border-sky-500 ring-2 ring-sky-500/20 shadow-xs"
                     : "bg-slate-50 border-slate-200 hover:bg-slate-100"
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <ShieldCheck className={`w-4 h-4 ${role === "Admin" ? "text-emerald-600" : "text-slate-400"}`} />
-                  <span className={`text-sm font-bold ${role === "Admin" ? "text-emerald-900" : "text-slate-700"}`}>
-                    Administrator
+                  <Users className={`w-4 h-4 ${role === "Member" ? "text-sky-600" : "text-slate-400"}`} />
+                  <span className={`text-xs font-bold ${role === "Member" ? "text-sky-900" : "text-slate-700"}`}>
+                    Members
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Full control over accounting, distribution, settings & operators.
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  Self-service access to own capital & loans.
                 </p>
               </div>
             </div>
           </div>
+
+          {/* Member Picker for Member Role */}
+          {role === "Member" && (
+            <div className="p-3.5 bg-sky-50/60 border border-sky-200 rounded-xl space-y-2">
+              <label className="block text-xs font-bold text-sky-900 uppercase tracking-wider">
+                Link to Cooperative Member <span className="text-rose-500">*</span>
+              </label>
+              <p className="text-[11px] text-sky-700 leading-tight">
+                Select the cooperative member record whose statement and loan records will be accessible by this user.
+              </p>
+              {isLoadingMembers ? (
+                <div className="text-xs text-sky-600 py-2">Loading member registry...</div>
+              ) : (
+                <select
+                  value={selectedMemberId}
+                  onChange={(e) => handleMemberSelect(e.target.value)}
+                  className="w-full px-3 py-2 text-xs bg-white border border-sky-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-600 font-semibold text-slate-800"
+                  required
+                >
+                  <option value="">-- Choose Member Record --</option>
+                  {membersList.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      [{m.memberCode}] {m.lastName}, {m.firstName} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
 
           {/* Password */}
           <div>

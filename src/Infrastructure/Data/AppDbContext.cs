@@ -31,6 +31,11 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Username).IsUnique();
             entity.HasIndex(e => e.Email).IsUnique();
             entity.Property(e => e.Role).HasConversion<string>();
+
+            entity.HasOne(e => e.Member)
+                .WithMany()
+                .HasForeignKey(e => e.MemberId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // 2. Member

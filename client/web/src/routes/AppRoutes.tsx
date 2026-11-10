@@ -27,7 +27,7 @@ const RootRedirect: React.FC = () => {
     return <Navigate to="/login" replace />;
   }
 
-  return user.role === "Admin" ? (
+  return user.role === "Admin" || user.role === "Member" ? (
     <Navigate to="/dashboard" replace />
   ) : (
     <Navigate to="/loans" replace />
@@ -50,7 +50,7 @@ export const AppRoutes: React.FC = () => {
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["Admin", "Member"]}>
               <DashboardPage />
             </ProtectedRoute>
           }
@@ -66,7 +66,7 @@ export const AppRoutes: React.FC = () => {
         <Route
           path="/contributions"
           element={
-            <ProtectedRoute allowedRoles={["Admin"]}>
+            <ProtectedRoute allowedRoles={["Admin", "Member"]}>
               <ContributionsPage />
             </ProtectedRoute>
           }
@@ -90,7 +90,7 @@ export const AppRoutes: React.FC = () => {
         <Route
           path="/loans"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "User"]}>
+            <ProtectedRoute allowedRoles={["Admin", "User", "Member"]}>
               <LoansPage />
             </ProtectedRoute>
           }

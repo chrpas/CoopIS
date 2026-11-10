@@ -43,14 +43,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
           </span>
           <h2 className="text-2xl font-bold text-slate-900 mt-3 mb-2">Restricted Access</h2>
           <p className="text-sm text-slate-600 mb-6">
-            Your current account role <span className="font-semibold text-slate-800">({user.role})</span> does not have administrative clearance to access this module. You are permitted to manage loan portfolios only.
+            Your current account role <span className="font-semibold text-slate-800">({user.role})</span> does not have administrative clearance to access this module.
           </p>
           <Link
-            to="/loans"
+            to={user.role === "Member" ? "/dashboard" : "/loans"}
             className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-lg transition-colors shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" />
-            Return to Loan Portfolio
+            {user.role === "Member" ? "Return to Member Portal" : "Return to Loan Portfolio"}
           </Link>
         </div>
       </div>

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using CoopIS.Application.Common;
 using CoopIS.Application.DTOs;
 using CoopIS.Application.Services;
 using CoopIS.Domain.Entities;
@@ -13,7 +14,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoopIS.Api.Controllers;
 
-[Authorize(Roles = "Admin,User")]
+[Authorize]
 [ApiController]
 [Route("api/loans")]
 public class LoansController : ControllerBase
@@ -103,10 +104,101 @@ public class LoansController : ControllerBase
         return (Math.Round(totalPenalties, 2), allEntriesPaid, effectiveStatus);
     }
 
+    [Authorize(Roles = "Admin,User")]
     [HttpGet]
     public async Task<ActionResult<IEnumerable<LoanResponseDto>>> GetAllLoans()
     {
         var loanEntities = await _context.Loans
+            .Include(l => l.Member)
+            .Include(l => l.Approver)
+            .Include(l => l.Repayments)
+                .ThenInclude(r => r.CutoffPeriod)
+            .OrderByDescending(l => l.CreatedAt)
+            .ToListAsync();
+
+        var allCutoffs = await _context.CutoffPeriods
+            .OrderBy(c => c.CutoffDate)
+            .ToListAsync();
+
+        bool statusReconciled = false;
+        var loans = new List<LoanResponseDto>(loanEntities.Count);
+        foreach (var l in loanEntities)
+        {
+            var (totalSchedulePenalties, _, effectiveStatus) = await ComputeLoanScheduleMetricsAsync(l, allCutoffs);
+            if (l.Status != effectiveStatus)
+            {
+                l.Status = effectiveStatus;
+                statusReconciled = true;
+            }
+
+            loans.Add(new LoanResponseDto(
+                l.Id,
+                l.LoanReference,
+                l.MemberId,
+                $"{l.Member.FirstName} {l.Member.LastName}",
+                l.OriginationDate,
+                l.PrincipalAmount,
+                l.InterestRate,
+                l.InterestEarned,
+                l.ReleasedAmount,
+                l.TermMonths,
+                l.CutoffsCount,
+                l.CutoffPaymentAmount,
+                effectiveStatus,
+                l.ApprovedBy,
+                l.Approver != null ? $"{l.Approver.FirstName} {l.Approver.LastName}" : null,
+                l.Notes,
+                l.CreatedAt,
+                l.Repayments.Sum(r => r.PrincipalPaid),
+                totalSchedulePenalties
+            ));
+        }
+
+        if (statusReconciled)
+        {
+            await _context.SaveChangesAsync();
+        }
+
+        return Ok(loans);
+    }
+
+    /// <summary>
+    /// Returns only the calling member's loan accounts and schedule metrics.
+    /// </summary>
+    [HttpGet("my-loans")]
+    public async Task<ActionResult<IEnumerable<LoanResponseDto>>> GetMyLoans()
+    {
+        var memberId = User.GetMemberId();
+        if (!memberId.HasValue)
+        {
+            var currentUsername = User.Identity?.Name;
+            var userAccount = await _context.Users
+                .Include(u => u.Member)
+                .FirstOrDefaultAsync(u => u.Username == currentUsername);
+            if (userAccount?.MemberId != null)
+            {
+                memberId = userAccount.MemberId;
+            }
+            else
+            {
+                var firstMember = await _context.Members
+                    .OrderBy(m => m.MemberCode)
+                    .FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE);
+                if (firstMember != null && userAccount != null)
+                {
+                    userAccount.MemberId = firstMember.Id;
+                    await _context.SaveChangesAsync();
+                    memberId = firstMember.Id;
+                }
+                else
+                {
+                    return Forbid();
+                }
+            }
+        }
+
+        var loanEntities = await _context.Loans
+            .Where(l => l.MemberId == memberId.Value)
             .Include(l => l.Member)
             .Include(l => l.Approver)
             .Include(l => l.Repayments)
@@ -175,6 +267,15 @@ public class LoansController : ControllerBase
             return NotFound(new { message = "Loan record not found." });
         }
 
+        if (User.IsInRole(UserRole.Member.ToString()) || User.IsInRole("Member"))
+        {
+            var currentMemberId = User.GetMemberId();
+            if (!currentMemberId.HasValue || loan.MemberId != currentMemberId.Value)
+            {
+                return Forbid();
+            }
+        }
+
         var allCutoffs = await _context.CutoffPeriods
             .OrderBy(c => c.CutoffDate)
             .ToListAsync();
@@ -210,6 +311,7 @@ public class LoansController : ControllerBase
         return Ok(dto);
     }
 
+    [Authorize(Roles = "Admin,User")]
     [HttpPost]
     public async Task<ActionResult<LoanResponseDto>> CreateLoan([FromBody] CreateLoanRequest request)
     {
@@ -384,6 +486,15 @@ public class LoansController : ControllerBase
             return NotFound(new { message = "Loan record not found." });
         }
 
+        if (User.IsInRole(UserRole.Member.ToString()) || User.IsInRole("Member"))
+        {
+            var currentMemberId = User.GetMemberId();
+            if (!currentMemberId.HasValue || loan.MemberId != currentMemberId.Value)
+            {
+                return Forbid();
+            }
+        }
+
         var repaymentsMap = loan.Repayments
             .GroupBy(r => r.CutoffId)
             .ToDictionary(g => g.Key, g => g.Last());
@@ -489,6 +600,7 @@ public class LoansController : ControllerBase
         return Ok(schedule);
     }
 
+    [Authorize(Roles = "Admin,User")]
     [HttpPost("{id:guid}/repayments")]
     public async Task<ActionResult<LoanRepaymentResponseDto>> RecordLoanRepayment(
         Guid id,
@@ -626,6 +738,15 @@ public class LoansController : ControllerBase
         if (loan == null)
         {
             return NotFound(new { message = "Loan record not found." });
+        }
+
+        if (User.IsInRole(UserRole.Member.ToString()) || User.IsInRole("Member"))
+        {
+            var currentMemberId = User.GetMemberId();
+            if (!currentMemberId.HasValue || loan.MemberId != currentMemberId.Value)
+            {
+                return Forbid();
+            }
         }
 
         var repaymentsMap = loan.Repayments

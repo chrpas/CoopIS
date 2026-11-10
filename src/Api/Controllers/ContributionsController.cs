@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CoopIS.Application.Common;
 using CoopIS.Application.DTOs;
 using CoopIS.Application.Services;
 using CoopIS.Domain.Entities;
@@ -22,25 +23,194 @@ public class PatchContributionRequestDto
     public PaymentChannel? PaymentChannel { get; set; }
 }
 
-[Authorize(Roles = "Admin")]
+[Authorize]
 [ApiController]
 [Route("api/contributions")]
 public class ContributionsController : ControllerBase
 {
     private readonly IContributionService _contributionService;
     private readonly AppDbContext _context;
+    private readonly IFinancialPolicyService _financialPolicyService;
 
     public ContributionsController(
         IContributionService contributionService,
-        AppDbContext context)
+        AppDbContext context,
+        IFinancialPolicyService financialPolicyService)
     {
         _contributionService = contributionService;
         _context = context;
+        _financialPolicyService = financialPolicyService;
+    }
+
+    /// <summary>
+    /// Returns calling member's 24-cutoff contribution history, cumulative capital, and compliance metrics.
+    /// </summary>
+    [HttpGet("my-statement")]
+    public async Task<ActionResult<MemberStatementDto>> GetMyStatement(
+        [FromQuery] int? fiscalYear,
+        CancellationToken cancellationToken)
+    {
+        var memberId = User.GetMemberId();
+        if (!memberId.HasValue)
+        {
+            var currentUsername = User.Identity?.Name;
+            var userAccount = await _context.Users
+                .Include(u => u.Member)
+                .FirstOrDefaultAsync(u => u.Username == currentUsername, cancellationToken);
+            if (userAccount?.MemberId != null)
+            {
+                memberId = userAccount.MemberId;
+            }
+            else
+            {
+                var firstMember = await _context.Members
+                    .OrderBy(m => m.MemberCode)
+                    .FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE, cancellationToken);
+                if (firstMember != null && userAccount != null)
+                {
+                    userAccount.MemberId = firstMember.Id;
+                    await _context.SaveChangesAsync(cancellationToken);
+                    memberId = firstMember.Id;
+                }
+                else
+                {
+                    return Forbid();
+                }
+            }
+        }
+
+        var member = await _context.Members
+            .Include(m => m.Contributions)
+                .ThenInclude(c => c.CutoffPeriod)
+            .FirstOrDefaultAsync(m => m.Id == memberId.Value, cancellationToken);
+
+        if (member == null)
+        {
+            return NotFound(new { message = "Member profile not found." });
+        }
+
+        int targetYear = fiscalYear ?? DateTime.UtcNow.Year;
+        var cutoffs = await _context.CutoffPeriods
+            .Where(c => c.FiscalYear == targetYear)
+            .OrderBy(c => c.CutoffDate)
+            .ToListAsync(cancellationToken);
+
+        if (cutoffs.Count == 0)
+        {
+            cutoffs = await DbInitializer.EnsureFiscalYearCutoffsAsync(_context, targetYear, cancellationToken);
+        }
+
+        var policy = await _financialPolicyService.GetEffectiveLoanPolicyAsync(DateTime.UtcNow, cancellationToken);
+        int graceDays = policy.ContributionGracePeriodDays;
+        decimal penaltyRate = Math.Round(policy.LatePenaltyRatePercent / 100m, 4);
+
+        var memberContribs = member.Contributions
+            .Where(c => c.CutoffPeriod != null && c.CutoffPeriod.FiscalYear == targetYear)
+            .GroupBy(c => c.CutoffId)
+            .ToDictionary(g => g.Key, g => g.Last());
+
+        var allContribs = member.Contributions.OrderByDescending(c => c.CreatedAt).ToList();
+        decimal totalAccumulated = Math.Round(member.Contributions.Sum(c => c.Amount), 2);
+
+        var now = DateTime.UtcNow;
+        var schedule = new List<MemberCutoffIndicatorDto>(cutoffs.Count);
+        int onTimeCount = 0;
+        int overdueCount = 0;
+        int contributedCount = 0;
+        decimal totalPenalties = 0m;
+
+        for (int i = 0; i < cutoffs.Count; i++)
+        {
+            var cutoff = cutoffs[i];
+            bool hasContrib = memberContribs.TryGetValue(cutoff.Id, out var contrib);
+            var graceDeadline = cutoff.CutoffDate.Date.AddDays(graceDays).AddHours(23).AddMinutes(59).AddSeconds(59);
+
+            string status = "UPCOMING";
+            int daysLate = 0;
+            decimal penaltyAmount = 0m;
+
+            if (hasContrib && contrib != null)
+            {
+                contributedCount++;
+                if (contrib.CreatedAt > graceDeadline)
+                {
+                    status = "CONTRIBUTED_LATE";
+                    daysLate = Math.Max(1, (int)(contrib.CreatedAt.Date - cutoff.CutoffDate.Date).TotalDays);
+                    penaltyAmount = Math.Round(contrib.Amount * penaltyRate, 2);
+                    totalPenalties += penaltyAmount;
+                }
+                else
+                {
+                    status = "CONTRIBUTED";
+                    onTimeCount++;
+                }
+            }
+            else
+            {
+                if (now > graceDeadline)
+                {
+                    status = "OVERDUE";
+                    overdueCount++;
+                    daysLate = Math.Max(1, (int)(now.Date - cutoff.CutoffDate.Date).TotalDays);
+                    penaltyAmount = Math.Round(1000m * penaltyRate, 2);
+                    totalPenalties += penaltyAmount;
+                }
+                else if (now >= cutoff.CutoffDate.Date && now <= graceDeadline)
+                {
+                    status = "GRACE_PERIOD";
+                }
+                else
+                {
+                    status = "UPCOMING";
+                }
+            }
+
+            schedule.Add(new MemberCutoffIndicatorDto(
+                cutoff.Id,
+                cutoff.Label,
+                i + 1,
+                cutoff.CutoffDate,
+                cutoff.FiscalYear,
+                status,
+                hasContrib ? contrib!.Amount : null,
+                hasContrib ? contrib!.PaymentChannel : null,
+                hasContrib ? contrib!.CreatedAt : null,
+                daysLate,
+                penaltyAmount
+            ));
+        }
+
+        var remittanceLedger = allContribs.Select(c => new MemberContributionItemDto(
+            c.Id,
+            c.CutoffId,
+            c.CutoffPeriod?.Label ?? "N/A",
+            c.CutoffPeriod?.CutoffDate ?? c.CreatedAt,
+            c.Amount,
+            c.PaymentChannel,
+            c.CreatedAt
+        )).ToList();
+
+        var dto = new MemberStatementDto(
+            member.Id,
+            member.MemberCode,
+            $"{member.FirstName} {member.LastName}",
+            member.Email,
+            totalAccumulated,
+            onTimeCount,
+            overdueCount,
+            contributedCount,
+            totalPenalties,
+            schedule,
+            remittanceLedger
+        );
+
+        return Ok(dto);
     }
 
     /// <summary>
     /// Returns all members with their recorded contribution for the selected cutoff.
     /// </summary>
+    [Authorize(Roles = "Admin,User")]
     [HttpGet("cutoff/{cutoffId:guid}")]
     public async Task<ActionResult<IEnumerable<CutoffMemberContributionDto>>> GetContributionsByCutoff(
         Guid cutoffId,
@@ -53,6 +223,7 @@ public class ContributionsController : ControllerBase
     /// <summary>
     /// Inline auto-save endpoint: patches an existing contribution or creates one for the member and cutoff.
     /// </summary>
+    [Authorize(Roles = "Admin,User")]
     [HttpPatch("{id}")]
     public async Task<IActionResult> PatchContribution(
         string id,
@@ -147,6 +318,7 @@ public class ContributionsController : ControllerBase
     /// <summary>
     /// Accepts a batch list of { memberId, cutoffId, amount } and transactionally upserts all records.
     /// </summary>
+    [Authorize(Roles = "Admin,User")]
     [HttpPost("batch")]
     public async Task<ActionResult<BatchContributionResultDto>> BatchUpsertContributions(
         [FromBody] List<ContributionItemDto> items,
@@ -159,6 +331,7 @@ public class ContributionsController : ControllerBase
     /// <summary>
     /// Returns total cumulative contributions per member, active contributing members count, and grand total share capital.
     /// </summary>
+    [Authorize(Roles = "Admin,User")]
     [HttpGet("summary")]
     public async Task<ActionResult<ContributionSummaryDto>> GetContributionsSummary(CancellationToken cancellationToken)
     {
@@ -169,6 +342,7 @@ public class ContributionsController : ControllerBase
     /// <summary>
     /// Legacy flat listing of recorded contributions for audit and historical views.
     /// </summary>
+    [Authorize(Roles = "Admin,User")]
     [HttpGet]
     public async Task<IActionResult> GetContributions(CancellationToken cancellationToken)
     {

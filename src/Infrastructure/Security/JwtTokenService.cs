@@ -29,7 +29,7 @@ public class JwtTokenService : ITokenService
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new Claim(JwtRegisteredClaimNames.Name, user.Username),
@@ -38,6 +38,12 @@ public class JwtTokenService : ITokenService
             new Claim("role", user.Role.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+
+        if (user.MemberId.HasValue)
+        {
+            claims.Add(new Claim("member_id", user.MemberId.Value.ToString()));
+            claims.Add(new Claim("MemberId", user.MemberId.Value.ToString()));
+        }
 
         var token = new JwtSecurityToken(
             issuer: issuer,

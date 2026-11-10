@@ -53,12 +53,13 @@ public class AuthController : ControllerBase
         }
 
         var token = _tokenService.GenerateJwtToken(user);
-        var userDto = new UserDto(user.Id, user.Username, user.Email, user.Role);
+        var memberName = user.Member != null ? $"{user.Member.FirstName} {user.Member.LastName}".Trim() : null;
+        var userDto = new UserDto(user.Id, user.Username, user.Email, user.Role, user.MemberId, user.Member?.MemberCode, memberName);
 
         return Ok(new LoginResponse(token, userDto));
     }
 
-    [Authorize(Roles = "Admin,User")]
+    [Authorize]
     [HttpGet("me")]
     public async Task<ActionResult<UserDto>> GetCurrentUser()
     {
@@ -68,12 +69,15 @@ public class AuthController : ControllerBase
             return Unauthorized(new { message = "Invalid token claims." });
         }
 
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users
+            .Include(u => u.Member)
+            .FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null || !user.IsActive)
         {
             return Unauthorized(new { message = "User not found or inactive." });
         }
 
-        return Ok(new UserDto(user.Id, user.Username, user.Email, user.Role));
+        var memberName = user.Member != null ? $"{user.Member.FirstName} {user.Member.LastName}".Trim() : null;
+        return Ok(new UserDto(user.Id, user.Username, user.Email, user.Role, user.MemberId, user.Member?.MemberCode, memberName));
     }
 }

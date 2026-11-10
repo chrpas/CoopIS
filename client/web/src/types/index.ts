@@ -1,10 +1,13 @@
-export type UserRole = "Admin" | "User";
+export type UserRole = "Admin" | "User" | "Member";
 
 export interface User {
   id: string;
   username: string;
   email: string;
   role: UserRole;
+  memberId?: string | null;
+  memberCode?: string | null;
+  memberName?: string | null;
 }
 
 export interface UserAccount {
@@ -13,6 +16,9 @@ export interface UserAccount {
   email: string;
   role: UserRole;
   isActive: boolean;
+  memberId?: string | null;
+  memberCode?: string | null;
+  memberName?: string | null;
   createdAt: string;
 }
 
@@ -21,11 +27,13 @@ export interface CreateUserPayload {
   email: string;
   password: string;
   role: UserRole;
+  memberId?: string | null;
 }
 
 export interface UpdateUserRolePayload {
   role?: UserRole;
   isActive?: boolean;
+  memberId?: string | null;
 }
 
 export interface LoginResponse {
@@ -90,6 +98,8 @@ export interface Member {
   updatedAt?: string;
   totalContributions?: number;
   activeLoansCount?: number;
+  linkedUsername?: string | null;
+  linkedUserId?: string | null;
 }
 
 export interface MemberContributionItem {
@@ -135,6 +145,43 @@ export interface MemberDetail {
   totalActiveLoanBalance: number;
   activeLoansCount: number;
   loans: MemberLoanSummary[];
+  linkedUsername?: string | null;
+  linkedUserId?: string | null;
+}
+
+export interface MemberCutoffIndicator {
+  cutoffId: string;
+  label: string;
+  cutoffDate: string;
+  dueDateWithGrace: string;
+  fiscalYear: number;
+  status: "CONTRIBUTED" | "ON_TIME" | "LATE" | "OVERDUE" | "UPCOMING";
+  amount?: number | null;
+  paymentChannel?: PaymentChannel | null;
+  paymentDate?: string | null;
+  daysLate: number;
+  penaltyAmount: number;
+}
+
+export interface MemberStatementResponse {
+  memberId: string;
+  memberCode: string;
+  fullName?: string;
+  memberName?: string;
+  email: string;
+  totalAccumulated?: number;
+  totalAccumulatedCapital?: number;
+  onTimeCount?: number;
+  onTimeRemittancesCount?: number;
+  overdueCount?: number;
+  overdueMissedCutoffsCount?: number;
+  contributedCount?: number;
+  totalContributedCutoffsCount?: number;
+  totalPenalties?: number;
+  totalContributionPenalties?: number;
+  schedule?: MemberCutoffIndicator[];
+  cutoffSchedule?: MemberCutoffIndicator[];
+  remittanceLedger: MemberContributionItem[];
 }
 
 export interface CreateMemberPayload {
@@ -181,6 +228,7 @@ export interface Loan {
   notes?: string | null;
   createdAt: string;
   totalRepayments: number;
+  principalPaid?: number;
   totalLatePenalties?: number;
 }
 

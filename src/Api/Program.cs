@@ -24,6 +24,13 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure dynamic port binding for cloud platforms like Railway (respecting $PORT)
+var port = Environment.GetEnvironmentVariable("PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    builder.WebHost.UseUrls($"http://+:{port}");
+}
+
 // 1. Controllers & JSON Serialization
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -214,11 +221,11 @@ static string ResolveConnectionString(IConfiguration config)
         {
             var uri = new Uri(raw);
             var userInfo = uri.UserInfo.Split(':');
-            var user = userInfo[0];
-            var password = userInfo.Length > 1 ? userInfo[1] : "";
+            var user = Uri.UnescapeDataString(userInfo[0]);
+            var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
             var port = uri.Port > 0 ? uri.Port : 5432;
             var database = uri.AbsolutePath.TrimStart('/');
-            return $"Host={uri.Host};Port={port};Database={database};Username={user};Password={password};SSL Mode=Prefer;";
+            return $"Host={uri.Host};Port={port};Database={database};Username={user};Password={password};SSL Mode=Prefer;Trust Server Certificate=true;";
         }
         catch
         {

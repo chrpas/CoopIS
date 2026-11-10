@@ -36,7 +36,8 @@ public class UserService : IUserService
     {
         return await _context.Users
             .AsNoTracking()
-            .OrderBy(u => u.Role == UserRole.Admin ? 0 : 1)
+            .Include(u => u.Member)
+            .OrderBy(u => u.Role == UserRole.Admin ? 0 : (u.Role == UserRole.User ? 1 : 2))
             .ThenBy(u => u.Username)
             .Select(u => new UserAccountDto(
                 u.Id,
@@ -44,7 +45,10 @@ public class UserService : IUserService
                 u.Email,
                 u.Role,
                 u.IsActive,
-                u.CreatedAt
+                u.CreatedAt,
+                u.MemberId,
+                u.Member != null ? u.Member.MemberCode : null,
+                u.Member != null ? $"{u.Member.FirstName} {u.Member.LastName}" : null
             ))
             .ToListAsync(cancellationToken);
     }
@@ -53,6 +57,7 @@ public class UserService : IUserService
     {
         var user = await _context.Users
             .AsNoTracking()
+            .Include(u => u.Member)
             .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
 
         if (user == null)
@@ -66,7 +71,10 @@ public class UserService : IUserService
             user.Email,
             user.Role,
             user.IsActive,
-            user.CreatedAt
+            user.CreatedAt,
+            user.MemberId,
+            user.Member != null ? user.Member.MemberCode : null,
+            user.Member != null ? $"{user.Member.FirstName} {user.Member.LastName}" : null
         );
     }
 
@@ -131,6 +139,7 @@ public class UserService : IUserService
             Email = email,
             PasswordHash = passwordHash,
             Role = request.Role,
+            MemberId = request.MemberId,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -141,13 +150,25 @@ public class UserService : IUserService
         _logger.LogInformation("New user account '{Username}' ({Role}) created successfully with ID {UserId}.",
             newUser.Username, newUser.Role, newUser.Id);
 
+        string? memberCode = null;
+        string? memberName = null;
+        if (newUser.MemberId.HasValue)
+        {
+            var m = await _context.Members.AsNoTracking().FirstOrDefaultAsync(x => x.Id == newUser.MemberId.Value, cancellationToken);
+            memberCode = m?.MemberCode;
+            memberName = m != null ? $"{m.FirstName} {m.LastName}" : null;
+        }
+
         return new UserAccountDto(
             newUser.Id,
             newUser.Username,
             newUser.Email,
             newUser.Role,
             newUser.IsActive,
-            newUser.CreatedAt
+            newUser.CreatedAt,
+            newUser.MemberId,
+            memberCode,
+            memberName
         );
     }
 
@@ -205,10 +226,24 @@ public class UserService : IUserService
             user.IsActive = request.IsActive.Value;
         }
 
+        if (request.MemberId.HasValue)
+        {
+            user.MemberId = request.MemberId.Value;
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("User '{Username}' updated (Role: {Role}, IsActive: {IsActive}).",
             user.Username, user.Role, user.IsActive);
+
+        string? updatedMemberCode = null;
+        string? updatedMemberName = null;
+        if (user.MemberId.HasValue)
+        {
+            var m = await _context.Members.AsNoTracking().FirstOrDefaultAsync(x => x.Id == user.MemberId.Value, cancellationToken);
+            updatedMemberCode = m?.MemberCode;
+            updatedMemberName = m != null ? $"{m.FirstName} {m.LastName}" : null;
+        }
 
         return new UserAccountDto(
             user.Id,
@@ -216,7 +251,10 @@ public class UserService : IUserService
             user.Email,
             user.Role,
             user.IsActive,
-            user.CreatedAt
+            user.CreatedAt,
+            user.MemberId,
+            updatedMemberCode,
+            updatedMemberName
         );
     }
 

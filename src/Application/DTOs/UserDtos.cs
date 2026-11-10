@@ -9,17 +9,22 @@ public record UserAccountDto(
     string Email,
     UserRole Role,
     bool IsActive,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    Guid? MemberId = null,
+    string? MemberCode = null,
+    string? MemberName = null
 );
 
 public record CreateUserRequest(
     string Username,
     string Email,
     string Password,
-    UserRole Role
+    UserRole Role,
+    Guid? MemberId = null
 );
 
 public record UpdateUserRoleOrStatusRequest(
     UserRole? Role,
-    bool? IsActive
+    bool? IsActive,
+    Guid? MemberId = null
 );
