@@ -62,8 +62,18 @@ export const CreateUserModal: React.FC<CreateUserModalProps> = ({
     setSelectedMemberId(memberId);
     const selected = membersList.find((m) => m.id === memberId);
     if (selected) {
+      const cleanFirst = (selected.firstName || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cleanLast = (selected.lastName || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const firstPart = cleanFirst.slice(0, 3);
+      const lastPart = cleanLast.slice(0, 3);
+      const generatedUsername = `${firstPart}${lastPart}`;
+      const defaultUser =
+        generatedUsername.length >= 3
+          ? generatedUsername
+          : selected.memberCode.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+
       if (!username || username.startsWith("mem_") || membersList.some((m) => m.memberCode.toLowerCase() === username)) {
-        setUsername(selected.memberCode.toLowerCase());
+        setUsername(defaultUser);
       }
       if (!email || membersList.some((m) => m.email === email)) {
         setEmail(selected.email);

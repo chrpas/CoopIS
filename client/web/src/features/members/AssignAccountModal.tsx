@@ -26,7 +26,18 @@ export const AssignAccountModal: React.FC<AssignAccountModalProps> = ({
 
   useEffect(() => {
     if (member) {
-      setUsername(member.memberCode.toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+      // Default username to first 3 letters of firstname + first 3 letters of lastname (e.g. John Doe -> johdoe)
+      const cleanFirst = (member.firstName || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cleanLast = (member.lastName || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+      const firstPart = cleanFirst.slice(0, 3);
+      const lastPart = cleanLast.slice(0, 3);
+      const generatedUsername = `${firstPart}${lastPart}`;
+      const defaultUser =
+        generatedUsername.length >= 3
+          ? generatedUsername
+          : member.memberCode.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+
+      setUsername(defaultUser);
       setEmail(member.email || "");
       setPassword("member123");
       setConfirmPassword("member123");
@@ -147,11 +158,14 @@ export const AssignAccountModal: React.FC<AssignAccountModalProps> = ({
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. mem_001"
+                placeholder="e.g. johdoe"
                 className="w-full pl-9 pr-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-medium text-slate-900"
                 required
               />
             </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Defaulted to first 3 letters of first and last name.
+            </p>
           </div>
 
           <div>
