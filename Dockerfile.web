@@ -1,3 +1,5 @@
+# NOTE: No longer used for Railway deployment. The frontend is now built in
+# Dockerfile.api and served by the API from wwwroot. Kept for docker-compose use.
 # Multi-stage build for React Vite Frontend
 FROM node:20-alpine AS build
 WORKDIR /app

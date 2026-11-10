@@ -16,6 +16,14 @@ RUN dotnet restore CoopIS.sln
 COPY src/ src/
 RUN dotnet publish src/Api/CoopIS.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
+# Build the React/Vite frontend so the API can serve it as static files
+FROM node:20-alpine AS web
+WORKDIR /app
+COPY client/web/package*.json ./
+RUN npm ci || npm install
+COPY client/web/ ./
+RUN npm run build
+
 # Runtime container using lightweight ASP.NET 8 image
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
@@ -28,5 +36,8 @@ ENV ASPNETCORE_URLS=http://+:8080 \
 
 # Copy compiled binary artifacts from build stage
 COPY --from=build /app/publish .
+
+# Copy compiled frontend into wwwroot (served by the API's static file middleware)
+COPY --from=web /app/dist ./wwwroot
 
 ENTRYPOINT ["dotnet", "CoopIS.Api.dll"]
