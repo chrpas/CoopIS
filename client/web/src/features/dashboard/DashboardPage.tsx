@@ -201,22 +201,23 @@ export const DashboardPage: React.FC = () => {
                 )}
               </div>
             </div>
-            <div className="mt-3 sm:mt-4 flex items-baseline gap-2">
+            <div className="mt-3 sm:mt-4 flex items-center min-h-[2.25rem]">
               <span
-                className={`text-xl sm:text-2xl font-extrabold truncate ${
+                className={`text-lg sm:text-xl font-extrabold leading-tight tracking-tight ${
                   hasOverdueInstallment
                     ? "text-rose-600"
                     : myActiveLoans.length > 0
                     ? "text-emerald-700"
                     : "text-slate-800"
                 }`}
+                title={amortizationStatus}
               >
                 {amortizationStatus}
               </span>
             </div>
             <div className="mt-2 sm:mt-3 text-xs text-slate-500">
               {hasOverdueInstallment
-                ? `${memberStatement?.overdueCount} overdue period(s)`
+                ? `${overdueCount} overdue period(s)`
                 : "No overdue amortizations"}
             </div>
           </div>
