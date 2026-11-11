@@ -103,6 +103,20 @@ public class CutoffPeriodsController : ControllerBase
             });
         }
 
+        // 3. Sequential requirement: All previous cutoffs must already be closed
+        var previousOpenCutoff = await _context.CutoffPeriods
+            .Where(c => c.CutoffDate < cutoff.CutoffDate && !c.IsClosed)
+            .OrderBy(c => c.CutoffDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (previousOpenCutoff != null)
+        {
+            return BadRequest(new
+            {
+                message = $"Cannot close cutoff '{cutoff.Label}' ({cutoff.CutoffDate:MMM dd, yyyy}) because previous cutoff '{previousOpenCutoff.Label}' ({previousOpenCutoff.CutoffDate:MMM dd, yyyy}) has not been closed yet. Cutoffs must be closed in sequential chronological order."
+            });
+        }
+
         cutoff.IsClosed = true;
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -185,7 +199,21 @@ public class CutoffPeriodsController : ControllerBase
             return NotFound(new { message = $"No cutoff periods found for Fiscal Year {fiscalYear}." });
         }
 
-        // 2. Verify all open cutoffs have passed by more than a day
+        // 2. Check if any previous cutoff from a prior year is still open
+        var priorOpenCutoff = await _context.CutoffPeriods
+            .Where(c => c.FiscalYear < fiscalYear && !c.IsClosed)
+            .OrderBy(c => c.CutoffDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (priorOpenCutoff != null)
+        {
+            return BadRequest(new
+            {
+                message = $"Cannot lock all cutoff periods for FY {fiscalYear} because previous cutoff '{priorOpenCutoff.Label}' (FY {priorOpenCutoff.FiscalYear}) has not been closed yet. Cutoffs must be closed in sequential chronological order."
+            });
+        }
+
+        // 3. Verify all open cutoffs have passed by more than a day
         var unpassedOpenCutoffs = cutoffs.Where(c => !c.IsClosed && (now.Date - c.CutoffDate.Date).TotalDays <= 1).ToList();
         if (unpassedOpenCutoffs.Any())
         {

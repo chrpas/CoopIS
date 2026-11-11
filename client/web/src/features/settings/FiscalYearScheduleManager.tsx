@@ -264,8 +264,20 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
       }
     }
 
+    // 3. Sequential requirement: All previous cutoffs must already be closed
+    const previousOpenCutoff = cutoffs
+      .filter((c) => new Date(c.cutoffDate).getTime() < cutoffDateObj.getTime() && !c.isClosed)
+      .sort((a, b) => new Date(a.cutoffDate).getTime() - new Date(b.cutoffDate).getTime())[0];
+
+    if (previousOpenCutoff) {
+      return {
+        allowed: false,
+        reason: `Cannot close "${cutoff.label}" because previous cutoff "${previousOpenCutoff.label}" (${previousOpenCutoff.fiscalYear}) has not been closed yet. Cutoffs must be closed in sequential chronological order.`,
+      };
+    }
+
     return { allowed: true };
-  }, []);
+  }, [cutoffs]);
 
   const isFutureYear = activeSelectedSummary ? activeSelectedSummary.fiscalYear > new Date().getFullYear() : false;
 

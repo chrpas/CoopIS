@@ -252,6 +252,72 @@ export const ContributionsPage: React.FC = () => {
     [cutoffs, selectedCutoffId]
   );
 
+  // Check whether the currently selected cutoff is eligible to be locked
+  const lockEligibility = useMemo(() => {
+    if (!selectedCutoff) return { allowed: false, reason: "No cutoff selected." };
+    if (selectedCutoff.isClosed) return { allowed: false, reason: "Cutoff is already finalized." };
+
+    const currentYear = new Date().getFullYear();
+    // 1. Future fiscal years cannot be locked
+    if (selectedCutoff.fiscalYear > currentYear) {
+      return {
+        allowed: false,
+        reason: `FY ${selectedCutoff.fiscalYear} is in the future. Future fiscal year periods cannot be locked.`,
+      };
+    }
+
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const cutoffDateObj = new Date(selectedCutoff.cutoffDate);
+    const cutoffMidnight = new Date(
+      cutoffDateObj.getFullYear(),
+      cutoffDateObj.getMonth(),
+      cutoffDateObj.getDate()
+    ).getTime();
+
+    const diffDays = Math.floor((todayMidnight - cutoffMidnight) / (1000 * 60 * 60 * 24));
+
+    // 2. Cutoff date must have already passed by more than a day (diffDays > 1)
+    if (diffDays <= 1) {
+      const formattedDate = cutoffDateObj.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+      const todayFormatted = today.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      if (diffDays < 0) {
+        return {
+          allowed: false,
+          reason: `Cutoff date (${formattedDate}) has not yet arrived (today is ${todayFormatted}).`,
+        };
+      } else {
+        return {
+          allowed: false,
+          reason: `Cutoff date (${formattedDate}) cannot be closed until more than a day has passed (today is ${todayFormatted}).`,
+        };
+      }
+    }
+
+    // 3. Sequential requirement: All previous cutoffs must already be closed
+    const previousOpenCutoff = cutoffs
+      .filter((c) => new Date(c.cutoffDate).getTime() < cutoffDateObj.getTime() && !c.isClosed)
+      .sort((a, b) => new Date(a.cutoffDate).getTime() - new Date(b.cutoffDate).getTime())[0];
+
+    if (previousOpenCutoff) {
+      return {
+        allowed: false,
+        reason: `Cannot close "${selectedCutoff.label}" because previous cutoff "${previousOpenCutoff.label}" (${previousOpenCutoff.fiscalYear}) has not been closed yet. Cutoffs must be closed in sequential chronological order.`,
+      };
+    }
+
+    return { allowed: true };
+  }, [selectedCutoff, cutoffs]);
+
   // 2. Fetch Contributions for the selected Cutoff
   const {
     data: serverCutoffContributions = [],
@@ -1198,11 +1264,25 @@ export const ContributionsPage: React.FC = () => {
                     {reopenMutation.isPending ? "Reopening..." : "Reopen"}
                   </button>
                 </div>
+              ) : !lockEligibility.allowed ? (
+                <button
+                  type="button"
+                  disabled={true}
+                  className="flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm bg-slate-100 text-slate-400 border border-slate-200 opacity-60 cursor-not-allowed"
+                  title={lockEligibility.reason}
+                >
+                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  Lock & Finalize Cutoff
+                </button>
               ) : (
                 <button
                   type="button"
                   onClick={() => {
                     if (!selectedCutoffId) return;
+                    if (!lockEligibility.allowed) {
+                      showToast("error", "Cannot Finalize Cutoff", lockEligibility.reason);
+                      return;
+                    }
                     if (
                       window.confirm(
                         `Lock and finalize cutoff "${selectedCutoff?.label}"?\n\nOnce locked, contributions will be finalized and become read-only.`
@@ -1212,7 +1292,7 @@ export const ContributionsPage: React.FC = () => {
                     }
                   }}
                   disabled={finalizeMutation.isPending || !selectedCutoffId}
-                  className="flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50"
+                  className="flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 cursor-pointer"
                   title="Lock and finalize this cutoff period"
                 >
                   {finalizeMutation.isPending ? (
