@@ -14,6 +14,14 @@ export const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [backendHealth, setBackendHealth] = useState<BackendHealth>("checking");
 
+  // Only render one-click demo credentials in local development; never in production / Railway
+  const isLocalDev =
+    import.meta.env.DEV ||
+    (typeof window !== "undefined" &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "::1"));
+
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -267,64 +275,66 @@ export const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          {/* Demo Quick-Login Buttons Section */}
-          <div className="mt-8 pt-6 border-t border-slate-200">
-            <p className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-              One-Click Demo Credentials by Role
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <button
-                type="button"
-                onClick={handleQuickAdminLogin}
-                disabled={isActionDisabled}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
-                  isActionDisabled
-                    ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
-                    : "border-purple-200 bg-purple-50/70 hover:bg-purple-100/80 active:bg-purple-200 text-purple-900 cursor-pointer"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <Shield className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-purple-600"}`} />
-                  Admin
-                </div>
-                <span className="text-[11px] mt-0.5 text-purple-700/80">Full System Control</span>
-              </button>
+          {/* Demo Quick-Login Buttons Section (Local Development Only) */}
+          {isLocalDev && (
+            <div className="mt-8 pt-6 border-t border-slate-200">
+              <p className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                One-Click Demo Credentials by Role
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleQuickAdminLogin}
+                  disabled={isActionDisabled}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                    isActionDisabled
+                      ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
+                      : "border-purple-200 bg-purple-50/70 hover:bg-purple-100/80 active:bg-purple-200 text-purple-900 cursor-pointer"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <Shield className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-purple-600"}`} />
+                    Admin
+                  </div>
+                  <span className="text-[11px] mt-0.5 text-purple-700/80">Full System Control</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleQuickUserLogin}
-                disabled={isActionDisabled}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
-                  isActionDisabled
-                    ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
-                    : "border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 active:bg-blue-200 text-blue-900 cursor-pointer"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <UserCheck className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-blue-600"}`} />
-                  Loan Officers
-                </div>
-                <span className="text-[11px] mt-0.5 text-blue-700/80">Loans & Repayments</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleQuickUserLogin}
+                  disabled={isActionDisabled}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                    isActionDisabled
+                      ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
+                      : "border-blue-200 bg-blue-50/70 hover:bg-blue-100/80 active:bg-blue-200 text-blue-900 cursor-pointer"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <UserCheck className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-blue-600"}`} />
+                    Loan Officers
+                  </div>
+                  <span className="text-[11px] mt-0.5 text-blue-700/80">Loans & Repayments</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={handleQuickMemberLogin}
-                disabled={isActionDisabled}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
-                  isActionDisabled
-                    ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
-                    : "border-sky-200 bg-sky-50/70 hover:bg-sky-100/80 active:bg-sky-200 text-sky-900 cursor-pointer"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 font-bold text-xs">
-                  <Users className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-sky-600"}`} />
-                  Members
-                </div>
-                <span className="text-[11px] mt-0.5 text-sky-700/80">Self-Service Portal</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={handleQuickMemberLogin}
+                  disabled={isActionDisabled}
+                  className={`flex flex-col items-center justify-center p-3 rounded-xl border transition-all text-center ${
+                    isActionDisabled
+                      ? "border-slate-200 bg-slate-50 text-slate-400 opacity-60 cursor-not-allowed"
+                      : "border-sky-200 bg-sky-50/70 hover:bg-sky-100/80 active:bg-sky-200 text-sky-900 cursor-pointer"
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5 font-bold text-xs">
+                    <Users className={`w-3.5 h-3.5 ${isActionDisabled ? "text-slate-400" : "text-sky-600"}`} />
+                    Members
+                  </div>
+                  <span className="text-[11px] mt-0.5 text-sky-700/80">Self-Service Portal</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
