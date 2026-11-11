@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
@@ -15,10 +15,13 @@ import {
   Clock,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { LoanQueueTrackerCard } from "./LoanQueueTrackerCard";
+import { MemberLoanApplicationModal } from "./MemberLoanApplicationModal";
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const isMember = user?.role === "Member";
+  const [isLoanModalOpen, setIsLoanModalOpen] = useState(false);
 
   // Admin queries
   const { data: members = [] } = useQuery<Member[]>({
@@ -98,24 +101,36 @@ export const DashboardPage: React.FC = () => {
   if (isMember) {
     return (
       <div className="space-y-6 sm:space-y-8">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
-              Member Self-Service Portal
-            </span>
-            {(memberStatement?.memberCode || user?.memberCode) && (
-              <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
-                {memberStatement?.memberCode || user?.memberCode}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                Member Self-Service Portal
               </span>
-            )}
+              {(memberStatement?.memberCode || user?.memberCode) && (
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                  {memberStatement?.memberCode || user?.memberCode}
+                </span>
+              )}
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+              Welcome, {memberDisplayName}!
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              Personal Share Capital Build-up, Active Loan Amortization, and Compliance Overview
+            </p>
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-            Welcome, {memberDisplayName}!
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Personal Share Capital Build-up, Active Loan Amortization, and Compliance Overview
-          </p>
         </div>
+
+        {/* Real-Time Loan Queue Tracker Card */}
+        <LoanQueueTrackerCard onRequestLoan={() => setIsLoanModalOpen(true)} />
+
+        {/* Member Loan Application Modal */}
+        <MemberLoanApplicationModal
+          isOpen={isLoanModalOpen}
+          onClose={() => setIsLoanModalOpen(false)}
+          myShareCapital={myTotalShareCapital}
+        />
 
         {/* Member KPI Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">

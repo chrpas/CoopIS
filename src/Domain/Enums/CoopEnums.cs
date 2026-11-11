@@ -29,3 +29,13 @@ public enum UserRole
     User,
     Member
 }
+
+public enum LoanQueueStatus
+{
+    Queued,
+    UnderReview,
+    ReadyForFunding,
+    Disbursed,
+    Cancelled,
+    Rejected
+}

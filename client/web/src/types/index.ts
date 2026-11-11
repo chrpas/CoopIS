@@ -569,3 +569,98 @@ export interface MemberStatementOfAccount {
   contributions: MemberSoaContributionItem[];
   loans: MemberSoaLoanItem[];
 }
+
+export interface BankAccount {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  currentBalance: number;
+  isPrimary: boolean;
+  lastReconciledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBankAccountPayload {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  initialBalance: number;
+  isPrimary: boolean;
+}
+
+export interface AdjustBankBalancePayload {
+  newBalance: number;
+  reason?: string;
+  markReconciled?: boolean;
+}
+
+export interface LiquiditySummary {
+  totalBankBalance: number;
+  primaryBankBalance: number;
+  reserveCushionPercent: number;
+  reserveCushionAmount: number;
+  availableLiquidCash: number;
+  queuedLoanDemands: number;
+  netUnallocatedCash: number;
+  activeBankAccountsCount: number;
+  primaryBankName?: string | null;
+  primaryAccountNumber?: string | null;
+}
+
+export type LoanQueueStatus =
+  | "Queued"
+  | "UnderReview"
+  | "ReadyForFunding"
+  | "Disbursed"
+  | "Cancelled"
+  | "Rejected";
+
+export interface LoanQueueEntry {
+  id: string;
+  queueNumber: number;
+  memberId: string;
+  memberName: string;
+  memberCode: string;
+  desiredPrincipal: number;
+  termMonths: number;
+  cutoffsCount: number;
+  estimatedCutoffPayment: number;
+  purpose: string;
+  status: LoanQueueStatus;
+  requestedAt: string;
+  readyAt: string | null;
+  coMakerMemberId: string | null;
+  coMakerMemberName?: string | null;
+  disbursedLoanId?: string | null;
+  disbursedLoanReference?: string | null;
+  disbursedAt?: string | null;
+  adminNotes?: string | null;
+  queuePosition: number;
+  canBeFunded: boolean;
+}
+
+export interface MyQueueStatus {
+  activeEntry: LoanQueueEntry | null;
+  queuePosition: number;
+  totalActiveInQueue: number;
+  estimatedLiquidReserve: number;
+  estimatedFundingCutoff: string | null;
+  hasActiveEntry: boolean;
+}
+
+export interface ApplyLoanQueuePayload {
+  memberId?: string;
+  desiredPrincipal: number;
+  purpose: string;
+  coMakerMemberId?: string | null;
+}
+
+export interface CoMakerOption {
+  id: string;
+  memberCode: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+}

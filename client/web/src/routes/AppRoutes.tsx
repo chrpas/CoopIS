@@ -9,7 +9,9 @@ import { LoansPage } from "../features/loans/LoansPage";
 import { MembersPage } from "../features/members/MembersPage";
 import { ContributionsPage } from "../features/contributions/ContributionsPage";
 import { AccountingPage } from "../features/accounting/AccountingPage";
+import { BankAccountsPage } from "../features/accounting/BankAccountsPage";
 import { DistributionPage } from "../features/distribution/DistributionPage";
+import { LoanQueueWorkspace } from "../features/loans/LoanQueueWorkspace";
 import { SettingsPage } from "../features/settings/SettingsPage";
 
 const RootRedirect: React.FC = () => {
@@ -80,6 +82,14 @@ export const AppRoutes: React.FC = () => {
           }
         />
         <Route
+          path="/accounting/bank-accounts"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <BankAccountsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/distribution"
           element={
             <ProtectedRoute allowedRoles={["Admin"]}>
@@ -92,6 +102,14 @@ export const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute allowedRoles={["Admin", "User", "Member"]}>
               <LoansPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/loans/queue"
+          element={
+            <ProtectedRoute allowedRoles={["Admin"]}>
+              <LoanQueueWorkspace />
             </ProtectedRoute>
           }
         />

@@ -14,6 +14,7 @@ import { LoanOriginationWizard } from "./LoanOriginationWizard";
 import { AmortizationScheduleModal } from "./AmortizationScheduleModal";
 import { RecordRepaymentModal } from "./RecordRepaymentModal";
 import { LoanPenaltiesModal } from "./LoanPenaltiesModal";
+import { LoanQueueWorkspace } from "./LoanQueueWorkspace";
 import {
   Plus,
   CheckCircle,
@@ -56,6 +57,7 @@ export const LoansPage: React.FC = () => {
     useState<AmortizationScheduleItem | null>(null);
   const [isRepaymentModalOpen, setIsRepaymentModalOpen] = useState(false);
   const [isPenaltiesModalOpen, setIsPenaltiesModalOpen] = useState(false);
+  const [loanViewTab, setLoanViewTab] = useState<"portfolio" | "queue">("portfolio");
 
   // Filter, Expand & Pagination States
   const [searchTerm, setSearchTerm] = useState("");
@@ -449,7 +451,41 @@ export const LoansPage: React.FC = () => {
         )}
       </div>
 
-      {/* Loan Policy & Portfolio Summary Cards */}
+      {/* Admin Tab Switcher */}
+      {user?.role === "Admin" && (
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+          <button
+            type="button"
+            onClick={() => setLoanViewTab("portfolio")}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-2 ${
+              loanViewTab === "portfolio"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <HandCoins className="w-3.5 h-3.5" />
+            Active Loans & Ledgers
+          </button>
+          <button
+            type="button"
+            onClick={() => setLoanViewTab("queue")}
+            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-2 ${
+              loanViewTab === "queue"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            FIFO Loan Queue Workspace
+          </button>
+        </div>
+      )}
+
+      {loanViewTab === "queue" && user?.role === "Admin" ? (
+        <LoanQueueWorkspace />
+      ) : (
+        <>
+          {/* Loan Policy & Portfolio Summary Cards */}
       {isMember ? (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs">
@@ -1184,6 +1220,8 @@ export const LoansPage: React.FC = () => {
           />
         )}
       </div>
+        </>
+      )}
         </>
       )}
 

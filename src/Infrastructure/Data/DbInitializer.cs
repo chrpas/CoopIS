@@ -93,6 +93,36 @@ public static class DbInitializer
                         ""UpdatedAt"" timestamp with time zone NOT NULL,
                         CONSTRAINT ""PK_AppSettings"" PRIMARY KEY (""Key"")
                     );
+                    CREATE TABLE IF NOT EXISTS ""BankAccounts"" (
+                        ""Id"" uuid NOT NULL,
+                        ""BankName"" character varying(100) NOT NULL,
+                        ""AccountNumber"" character varying(50) NOT NULL,
+                        ""AccountName"" character varying(150) NOT NULL,
+                        ""CurrentBalance"" numeric(14,2) NOT NULL,
+                        ""IsPrimary"" boolean NOT NULL,
+                        ""LastReconciledAt"" timestamp with time zone,
+                        ""CreatedAt"" timestamp with time zone NOT NULL,
+                        ""UpdatedAt"" timestamp with time zone NOT NULL,
+                        CONSTRAINT ""PK_BankAccounts"" PRIMARY KEY (""Id"")
+                    );
+                    CREATE TABLE IF NOT EXISTS ""LoanQueueEntries"" (
+                        ""Id"" uuid NOT NULL,
+                        ""QueueNumber"" integer NOT NULL,
+                        ""MemberId"" uuid NOT NULL,
+                        ""DesiredPrincipal"" numeric(14,2) NOT NULL,
+                        ""TermMonths"" integer NOT NULL,
+                        ""CutoffsCount"" integer NOT NULL,
+                        ""EstimatedCutoffPayment"" numeric(14,2) NOT NULL,
+                        ""Purpose"" text NOT NULL,
+                        ""Status"" character varying(50) NOT NULL,
+                        ""RequestedAt"" timestamp with time zone NOT NULL,
+                        ""ReadyAt"" timestamp with time zone,
+                        ""CoMakerMemberId"" uuid,
+                        ""DisbursedLoanId"" uuid,
+                        ""DisbursedAt"" timestamp with time zone,
+                        ""AdminNotes"" text,
+                        CONSTRAINT ""PK_LoanQueueEntries"" PRIMARY KEY (""Id"")
+                    );
                     ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""MemberId"" uuid NULL;
                     DO $$
                     BEGIN
@@ -432,6 +462,23 @@ public static class DbInitializer
                 CreatedAt = DateTime.UtcNow
             });
 
+            // Seed Primary Bank Account matching the initial reserve
+            if (!await context.BankAccounts.AnyAsync())
+            {
+                context.BankAccounts.Add(new BankAccount
+                {
+                    Id = Guid.NewGuid(),
+                    BankName = "Land Bank of the Philippines",
+                    AccountNumber = "1421-0892-34",
+                    AccountName = "CoopIS General Operational Reserve",
+                    CurrentBalance = 576096.76m,
+                    IsPrimary = true,
+                    LastReconciledAt = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow
+                });
+            }
+
             // 8. Seed Surplus Distribution & Member Ledgers
             var surplusDist = new SurplusDistribution
             {
@@ -475,6 +522,25 @@ public static class DbInitializer
                 await context.SaveChangesAsync();
                 logger.LogInformation("Linked demo member user to member '{MemberCode}' ({Name}).", firstMember.MemberCode, $"{firstMember.FirstName} {firstMember.LastName}");
             }
+        }
+
+        // Ensure default primary BankAccount exists
+        if (!await context.BankAccounts.AnyAsync())
+        {
+            context.BankAccounts.Add(new BankAccount
+            {
+                Id = Guid.NewGuid(),
+                BankName = "Land Bank of the Philippines",
+                AccountNumber = "1421-0892-34",
+                AccountName = "CoopIS General Operational Reserve",
+                CurrentBalance = 576096.76m,
+                IsPrimary = true,
+                LastReconciledAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync();
+            logger.LogInformation("Seeded default primary BankAccount with baseline balance ₱576,096.76.");
         }
     }
 

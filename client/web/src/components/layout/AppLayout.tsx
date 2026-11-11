@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
   Landmark,
+  Building2,
   LayoutDashboard,
   Users,
   Wallet,
@@ -88,6 +89,12 @@ export const AppLayout: React.FC = () => {
       label: "Bank Reconciliation",
       path: "/accounting",
       icon: Scale,
+      allowedRoles: ["Admin"] as const,
+    },
+    {
+      label: "Bank Accounts",
+      path: "/accounting/bank-accounts",
+      icon: Building2,
       allowedRoles: ["Admin"] as const,
     },
     {

@@ -56,6 +56,8 @@ builder.Services.AddScoped<IAccountingService, AccountingService>();
 builder.Services.AddScoped<IFinancialPolicyService, FinancialPolicyService>();
 builder.Services.AddScoped<IDistributionService, DistributionService>();
 builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IBankAccountService, BankAccountService>();
+builder.Services.AddScoped<ILoanQueueService, LoanQueueService>();
 builder.Services.AddSingleton<IRemoteAccessService, NgrokRemoteAccessService>();
 builder.Services.AddHostedService<RemoteAccessBackgroundService>();
 

@@ -19,6 +19,8 @@ public class AppDbContext : DbContext
     public DbSet<SurplusDistribution> SurplusDistributions => Set<SurplusDistribution>();
     public DbSet<MemberSurplusLedger> MemberSurplusLedgers => Set<MemberSurplusLedger>();
     public DbSet<AppSetting> AppSettings => Set<AppSetting>();
+    public DbSet<BankAccount> BankAccounts => Set<BankAccount>();
+    public DbSet<LoanQueueEntry> LoanQueueEntries => Set<LoanQueueEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -172,6 +174,41 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(e => e.Key);
             entity.Property(e => e.Key).HasMaxLength(128);
+        });
+
+        // 11. BankAccount
+        modelBuilder.Entity<BankAccount>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.BankName).HasMaxLength(100);
+            entity.Property(e => e.AccountNumber).HasMaxLength(50);
+            entity.Property(e => e.AccountName).HasMaxLength(150);
+            entity.Property(e => e.CurrentBalance).HasPrecision(14, 2);
+        });
+
+        // 12. LoanQueueEntry
+        modelBuilder.Entity<LoanQueueEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.QueueNumber);
+            entity.Property(e => e.DesiredPrincipal).HasPrecision(14, 2);
+            entity.Property(e => e.EstimatedCutoffPayment).HasPrecision(14, 2);
+            entity.Property(e => e.Status).HasConversion<string>();
+
+            entity.HasOne(e => e.Member)
+                .WithMany()
+                .HasForeignKey(e => e.MemberId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.CoMakerMember)
+                .WithMany()
+                .HasForeignKey(e => e.CoMakerMemberId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(e => e.DisbursedLoan)
+                .WithMany()
+                .HasForeignKey(e => e.DisbursedLoanId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }
