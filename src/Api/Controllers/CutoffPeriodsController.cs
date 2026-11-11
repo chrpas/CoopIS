@@ -137,4 +137,58 @@ public class CutoffPeriodsController : ControllerBase
             isClosed = cutoff.IsClosed
         });
     }
+
+    /// <summary>
+    /// Locks/Finalizes all cutoff periods for a given fiscal year.
+    /// </summary>
+    [HttpPost("fiscal-year/{fiscalYear:int}/finalize-all")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> FinalizeAllCutoffsForYear(int fiscalYear, CancellationToken cancellationToken)
+    {
+        var cutoffs = await _context.CutoffPeriods.Where(c => c.FiscalYear == fiscalYear).ToListAsync(cancellationToken);
+        if (cutoffs.Count == 0)
+        {
+            return NotFound(new { message = $"No cutoff periods found for Fiscal Year {fiscalYear}." });
+        }
+
+        foreach (var c in cutoffs)
+        {
+            c.IsClosed = true;
+        }
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Ok(new
+        {
+            message = $"All {cutoffs.Count} cutoff periods for Fiscal Year {fiscalYear} have been locked.",
+            fiscalYear,
+            closedCount = cutoffs.Count
+        });
+    }
+
+    /// <summary>
+    /// Reopens all cutoff periods for a given fiscal year.
+    /// </summary>
+    [HttpPost("fiscal-year/{fiscalYear:int}/reopen-all")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ReopenAllCutoffsForYear(int fiscalYear, CancellationToken cancellationToken)
+    {
+        var cutoffs = await _context.CutoffPeriods.Where(c => c.FiscalYear == fiscalYear).ToListAsync(cancellationToken);
+        if (cutoffs.Count == 0)
+        {
+            return NotFound(new { message = $"No cutoff periods found for Fiscal Year {fiscalYear}." });
+        }
+
+        foreach (var c in cutoffs)
+        {
+            c.IsClosed = false;
+        }
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Ok(new
+        {
+            message = $"All {cutoffs.Count} cutoff periods for Fiscal Year {fiscalYear} have been reopened.",
+            fiscalYear,
+            openCount = cutoffs.Count
+        });
+    }
 }
