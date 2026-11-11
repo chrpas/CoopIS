@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Calendar,
@@ -111,15 +111,20 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
   const searchInputRef = useRef<HTMLInputElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
 
-  // Initialize selected year
+  // Initialize selected year (automatically select current calendar year)
   useEffect(() => {
     if (fiscalYearSummaries.length > 0 && selectedScheduleYear === null) {
-      // Prioritize current active year or first active summary
-      const activeSummary =
-        fiscalYearSummaries.find((s) => s.fiscalYear === currentActiveYear) ||
-        fiscalYearSummaries.find((s) => s.openCount > 0) ||
-        fiscalYearSummaries[0];
-      setSelectedScheduleYear(activeSummary.fiscalYear);
+      const currentYear = new Date().getFullYear();
+      const currentYearSummary = fiscalYearSummaries.find((s) => s.fiscalYear === currentYear);
+      if (currentYearSummary) {
+        setSelectedScheduleYear(currentYear);
+      } else {
+        const activeSummary =
+          fiscalYearSummaries.find((s) => s.fiscalYear === currentActiveYear) ||
+          fiscalYearSummaries.find((s) => s.openCount > 0) ||
+          fiscalYearSummaries[0];
+        setSelectedScheduleYear(activeSummary.fiscalYear);
+      }
     }
     if (!targetFiscalYearInput && maxFiscalYear) {
       setTargetFiscalYearInput(String(maxFiscalYear + 1));
@@ -210,6 +215,71 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
   const activeSelectedSummary = useMemo(() => {
     return fiscalYearSummaries.find((s) => s.fiscalYear === selectedScheduleYear) || null;
   }, [fiscalYearSummaries, selectedScheduleYear]);
+
+  // Check if a cutoff period is eligible to be locked
+  const getCutoffLockEligibility = useCallback((cutoff: CutoffPeriod): { allowed: boolean; reason?: string } => {
+    const currentYear = new Date().getFullYear();
+    // 1. Future fiscal years cannot be locked
+    if (cutoff.fiscalYear > currentYear) {
+      return {
+        allowed: false,
+        reason: `FY ${cutoff.fiscalYear} is in the future. Future fiscal year periods cannot be locked.`,
+      };
+    }
+
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const cutoffDateObj = new Date(cutoff.cutoffDate);
+    const cutoffMidnight = new Date(
+      cutoffDateObj.getFullYear(),
+      cutoffDateObj.getMonth(),
+      cutoffDateObj.getDate()
+    ).getTime();
+
+    const diffDays = Math.floor((todayMidnight - cutoffMidnight) / (1000 * 60 * 60 * 24));
+
+    // 2. Cutoff date must have already passed by more than a day (diffDays > 1)
+    if (diffDays <= 1) {
+      const formattedDate = cutoffDateObj.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+      const todayFormatted = today.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+
+      if (diffDays < 0) {
+        return {
+          allowed: false,
+          reason: `Cutoff date (${formattedDate}) has not yet arrived (today is ${todayFormatted}).`,
+        };
+      } else {
+        return {
+          allowed: false,
+          reason: `Cutoff date (${formattedDate}) cannot be closed until more than a day has passed (today is ${todayFormatted}).`,
+        };
+      }
+    }
+
+    return { allowed: true };
+  }, []);
+
+  const isFutureYear = activeSelectedSummary ? activeSelectedSummary.fiscalYear > new Date().getFullYear() : false;
+
+  const unpassedCutoffs = useMemo(() => {
+    if (!activeSelectedSummary) return [];
+    return activeSelectedSummary.cutoffs.filter((c) => !c.isClosed && !getCutoffLockEligibility(c).allowed);
+  }, [activeSelectedSummary, getCutoffLockEligibility]);
+
+  const canLockAll = Boolean(
+    activeSelectedSummary &&
+    activeSelectedSummary.openCount > 0 &&
+    !isFutureYear &&
+    unpassedCutoffs.length === 0
+  );
 
   // Quick access years (e.g. 2025, 2026, 2027 or adjacent to active)
   const quickAccessYears = useMemo(() => {
@@ -618,26 +688,43 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
 
                 {/* Batch Action Buttons */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {activeSelectedSummary.openCount > 0 && (
-                    <button
-                      type="button"
-                      disabled={finalizeAllMutation.isPending}
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Lock and finalize ALL ${activeSelectedSummary.openCount} remaining open cutoff periods for FY ${activeSelectedSummary.fiscalYear}? Contributions for this year will no longer be editable.`
-                          )
-                        ) {
-                          finalizeAllMutation.mutate(activeSelectedSummary.fiscalYear);
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-800 border border-rose-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      title="Lock and finalize all cutoff periods in this fiscal year"
-                    >
-                      <Lock className="w-3.5 h-3.5 text-rose-600" />
-                      {finalizeAllMutation.isPending ? "Locking..." : "Lock All Periods"}
-                    </button>
-                  )}
+                  {isFutureYear ? (
+                    <span className="text-[11px] font-bold text-sky-700 bg-sky-50 border border-sky-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-sky-600" />
+                      Future FY · Locking Disabled
+                    </span>
+                  ) : activeSelectedSummary.openCount > 0 ? (
+                    canLockAll ? (
+                      <button
+                        type="button"
+                        disabled={finalizeAllMutation.isPending}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Lock and finalize ALL ${activeSelectedSummary.openCount} remaining open cutoff periods for FY ${activeSelectedSummary.fiscalYear}? Contributions for this year will no longer be editable.`
+                            )
+                          ) {
+                            finalizeAllMutation.mutate(activeSelectedSummary.fiscalYear);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-800 border border-rose-200 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        title="Lock and finalize all cutoff periods in this fiscal year"
+                      >
+                        <Lock className="w-3.5 h-3.5 text-rose-600" />
+                        {finalizeAllMutation.isPending ? "Locking..." : "Lock All Periods"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={true}
+                        className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200 text-xs font-bold flex items-center gap-1.5 opacity-60 cursor-not-allowed"
+                        title={`Cannot lock all periods: upcoming cutoff periods (${unpassedCutoffs.map(c => c.label).slice(0, 3).join(", ")}${unpassedCutoffs.length > 3 ? "..." : ""}) have not yet passed by more than 1 day.`}
+                      >
+                        <Lock className="w-3.5 h-3.5 text-slate-400" />
+                        Lock All Periods
+                      </button>
+                    )
+                  ) : null}
 
                   {activeSelectedSummary.closedCount > 0 && (
                     <button
@@ -669,6 +756,8 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
                     month: "short",
                     day: "numeric",
                   });
+                  const lockEligibility = getCutoffLockEligibility(cutoff);
+                  const canLock = lockEligibility.allowed;
 
                   return (
                     <div
@@ -676,33 +765,55 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
                       className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all ${
                         cutoff.isClosed
                           ? "bg-slate-100/80 border-slate-200 text-slate-500"
+                          : !canLock
+                          ? "bg-slate-50/70 border-slate-200 text-slate-600"
                           : "bg-white border-emerald-200/90 text-slate-800 shadow-2xs hover:border-emerald-300"
                       }`}
                     >
                       <div className="flex items-center justify-between font-mono text-[10px] text-slate-400 mb-1">
                         <span>C{String(idx + 1).padStart(2, "0")}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleCutoffMutation.mutate({
-                              id: cutoff.id,
-                              isClosed: cutoff.isClosed,
-                            })
-                          }
-                          disabled={toggleCutoffMutation.isPending}
-                          className="hover:scale-110 active:scale-95 transition-transform p-0.5 rounded cursor-pointer"
-                          title={
-                            cutoff.isClosed
-                              ? "Click to Reopen this cutoff period"
-                              : "Click to Lock and Finalize this cutoff period"
-                          }
-                        >
-                          {cutoff.isClosed ? (
+                        {cutoff.isClosed ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggleCutoffMutation.mutate({
+                                id: cutoff.id,
+                                isClosed: cutoff.isClosed,
+                              })
+                            }
+                            disabled={toggleCutoffMutation.isPending}
+                            className="hover:scale-110 active:scale-95 transition-transform p-0.5 rounded cursor-pointer"
+                            title="Click to Reopen this cutoff period"
+                          >
                             <Lock className="w-3 h-3 text-rose-500 hover:text-rose-600" />
-                          ) : (
-                            <Unlock className="w-3 h-3 text-emerald-600 hover:text-emerald-700" />
-                          )}
-                        </button>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canLock) {
+                                onFeedback?.({
+                                  type: "error",
+                                  message: lockEligibility.reason || "This cutoff period cannot be locked yet.",
+                                });
+                                return;
+                              }
+                              toggleCutoffMutation.mutate({
+                                id: cutoff.id,
+                                isClosed: cutoff.isClosed,
+                              });
+                            }}
+                            disabled={!canLock || toggleCutoffMutation.isPending}
+                            className={`p-0.5 rounded transition-transform ${
+                              canLock
+                                ? "hover:scale-110 active:scale-95 cursor-pointer text-emerald-600 hover:text-emerald-700"
+                                : "opacity-35 cursor-not-allowed text-slate-400"
+                            }`}
+                            title={canLock ? "Click to Lock and Finalize this cutoff period" : lockEligibility.reason}
+                          >
+                            <Unlock className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
 
                       <div className="font-mono font-bold text-xs text-slate-900">
@@ -711,13 +822,19 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
                       <div className="text-[10px] text-slate-500 mt-0.5">{shortDate}</div>
 
                       <div className="mt-2 pt-1 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                        <span
-                          className={`font-semibold ${
-                            cutoff.isClosed ? "text-rose-600" : "text-emerald-700"
-                          }`}
-                        >
-                          {cutoff.isClosed ? "Locked" : "Open"}
-                        </span>
+                        {cutoff.isClosed ? (
+                          <span className="font-semibold text-rose-600">Locked</span>
+                        ) : !canLock ? (
+                          <span
+                            className="font-semibold text-slate-400 flex items-center gap-1"
+                            title={lockEligibility.reason}
+                          >
+                            <Clock className="w-2.5 h-2.5 text-slate-400" />
+                            Upcoming
+                          </span>
+                        ) : (
+                          <span className="font-semibold text-emerald-700">Open</span>
+                        )}
                       </div>
                     </div>
                   );
@@ -730,3 +847,4 @@ export const FiscalYearScheduleManager: React.FC<FiscalYearScheduleManagerProps>
     </div>
   );
 };
+

@@ -81,6 +81,28 @@ public class CutoffPeriodsController : ControllerBase
             return NotFound(new { message = $"Cutoff period with ID '{id}' was not found." });
         }
 
+        var now = DateTime.UtcNow;
+        var currentYear = now.Year;
+
+        // 1. Year greater than current year cannot be locked
+        if (cutoff.FiscalYear > currentYear)
+        {
+            return BadRequest(new
+            {
+                message = $"Cutoff '{cutoff.Label}' belongs to future Fiscal Year {cutoff.FiscalYear}. Future fiscal year periods cannot be locked."
+            });
+        }
+
+        // 2. Cutoff date must have already passed by more than a day
+        var daysPassed = (now.Date - cutoff.CutoffDate.Date).TotalDays;
+        if (daysPassed <= 1)
+        {
+            return BadRequest(new
+            {
+                message = $"Cutoff '{cutoff.Label}' ({cutoff.CutoffDate:MMM dd, yyyy}) cannot be closed yet because today is {now:MMM dd, yyyy}. A cutoff period can only be closed once its cutoff date has passed by more than a day."
+            });
+        }
+
         cutoff.IsClosed = true;
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -145,13 +167,37 @@ public class CutoffPeriodsController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> FinalizeAllCutoffsForYear(int fiscalYear, CancellationToken cancellationToken)
     {
+        var now = DateTime.UtcNow;
+        var currentYear = now.Year;
+
+        // 1. Year greater than current year cannot be locked
+        if (fiscalYear > currentYear)
+        {
+            return BadRequest(new
+            {
+                message = $"Cannot lock cutoff periods for future Fiscal Year {fiscalYear}. Future fiscal years cannot be locked."
+            });
+        }
+
         var cutoffs = await _context.CutoffPeriods.Where(c => c.FiscalYear == fiscalYear).ToListAsync(cancellationToken);
         if (cutoffs.Count == 0)
         {
             return NotFound(new { message = $"No cutoff periods found for Fiscal Year {fiscalYear}." });
         }
 
-        foreach (var c in cutoffs)
+        // 2. Verify all open cutoffs have passed by more than a day
+        var unpassedOpenCutoffs = cutoffs.Where(c => !c.IsClosed && (now.Date - c.CutoffDate.Date).TotalDays <= 1).ToList();
+        if (unpassedOpenCutoffs.Any())
+        {
+            var firstUnpassed = unpassedOpenCutoffs.First();
+            return BadRequest(new
+            {
+                message = $"Cannot lock all cutoff periods for FY {fiscalYear} because upcoming cutoff '{firstUnpassed.Label}' ({firstUnpassed.CutoffDate:MMM dd, yyyy}) has not yet passed by more than a day."
+            });
+        }
+
+        var cutoffsToClose = cutoffs.Where(c => !c.IsClosed).ToList();
+        foreach (var c in cutoffsToClose)
         {
             c.IsClosed = true;
         }
@@ -159,9 +205,9 @@ public class CutoffPeriodsController : ControllerBase
 
         return Ok(new
         {
-            message = $"All {cutoffs.Count} cutoff periods for Fiscal Year {fiscalYear} have been locked.",
+            message = $"All {cutoffsToClose.Count} eligible cutoff periods for Fiscal Year {fiscalYear} have been locked.",
             fiscalYear,
-            closedCount = cutoffs.Count
+            closedCount = cutoffs.Count(c => c.IsClosed)
         });
     }
 
