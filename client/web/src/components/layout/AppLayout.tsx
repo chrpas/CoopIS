@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Landmark,
   Building2,
   LayoutDashboard,
   Users,
@@ -133,15 +132,12 @@ export const AppLayout: React.FC = () => {
             {/* Mobile Header Brand & Close Button */}
             <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-950 font-bold shadow-md shrink-0">
-                  <Landmark className="w-5 h-5 text-white" />
+                <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                  <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
                 </div>
                 <div className="min-w-0">
                   <div className="font-bold tracking-tight text-white flex items-center gap-2">
                     <span>CoopIS</span>
-                    <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      Clean Arch
-                    </span>
                   </div>
                   <p className="text-[11px] text-slate-400 truncate">Cooperative Platform</p>
                 </div>
@@ -281,15 +277,12 @@ export const AppLayout: React.FC = () => {
             >
               {!isCollapsed && (
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-950 font-bold shadow-md shrink-0">
-                    <Landmark className="w-5 h-5 text-white" />
+                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                    <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
                   </div>
                   <div className="min-w-0">
                     <div className="font-bold tracking-tight text-white flex items-center gap-2">
                       <span>CoopIS</span>
-                      <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                        Clean Arch
-                      </span>
                     </div>
                     <p className="text-[11px] text-slate-400 truncate">Cooperative Platform</p>
                   </div>

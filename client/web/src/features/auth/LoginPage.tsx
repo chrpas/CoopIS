@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
-import { Landmark, Shield, User, UserCheck, Users, Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { Shield, User, UserCheck, Users, Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
 
 type BackendHealth = "checking" | "online" | "offline";
 
@@ -142,8 +142,8 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-500 mx-auto flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 mb-3 sm:mb-4">
-          <Landmark className="w-8 h-8 sm:w-9 sm:h-9" />
+        <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto flex items-center justify-center mb-3 sm:mb-4">
+          <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
         </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">CoopIS Portal</h2>
         <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-slate-300">

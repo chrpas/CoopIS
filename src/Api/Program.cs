@@ -149,7 +149,7 @@ builder.Services.AddSwaggerGen(c =>
     {
         Title = "CoopIS API - Cooperative Financial System",
         Version = "v1",
-        Description = "Enterprise Clean Architecture Web API with RBAC and Rate Limiting"
+        Description = "Cooperative Financial System Web API with RBAC and Rate Limiting"
     });
 
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme

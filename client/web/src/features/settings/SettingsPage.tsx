@@ -15,7 +15,6 @@ import {
   Lock,
   Trash2,
   RefreshCw,
-  Landmark,
   Percent,
   Layers,
   Shield,
@@ -835,8 +834,8 @@ export const SettingsPage: React.FC = () => {
             {/* Cooperative Profile Card */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
               <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <Landmark className="w-5 h-5" />
+                <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                  <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Cooperative Identity</h3>
@@ -858,10 +857,6 @@ export const SettingsPage: React.FC = () => {
                 <div className="p-3 bg-slate-50 rounded-xl">
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Cutoff Schedule</span>
                   <span className="text-slate-800 font-bold text-sm">24 Semi-Monthly Cutoffs</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Architecture Style</span>
-                  <span className="text-slate-800 font-bold text-sm">Clean Arch + .NET 8</span>
                 </div>
               </div>
             </div>

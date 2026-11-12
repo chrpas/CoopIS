@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Landmark, Mail, ArrowLeft, ArrowRight, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Mail, ArrowLeft, ArrowRight, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import api from "../../services/api";
 
 export const ForgotPasswordPage: React.FC = () => {
@@ -34,8 +34,8 @@ export const ForgotPasswordPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-emerald-500 mx-auto flex items-center justify-center text-white shadow-xl shadow-emerald-500/20 mb-3 sm:mb-4">
-          <Landmark className="w-8 h-8 sm:w-9 sm:h-9" />
+        <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto flex items-center justify-center mb-3 sm:mb-4">
+          <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
         </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">Reset Password</h2>
         <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-slate-300">
