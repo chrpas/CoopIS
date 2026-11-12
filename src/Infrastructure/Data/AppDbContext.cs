@@ -33,6 +33,7 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Username).IsUnique();
             entity.HasIndex(e => e.Email).IsUnique();
             entity.Property(e => e.Role).HasConversion<string>();
+            entity.Property(e => e.PasswordResetTokenHash).HasMaxLength(128);
 
             entity.HasOne(e => e.Member)
                 .WithMany()

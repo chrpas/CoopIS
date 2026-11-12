@@ -124,6 +124,8 @@ public static class DbInitializer
                         CONSTRAINT ""PK_LoanQueueEntries"" PRIMARY KEY (""Id"")
                     );
                     ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""MemberId"" uuid NULL;
+                    ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""PasswordResetTokenHash"" character varying(128) NULL;
+                    ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""PasswordResetTokenExpiresAt"" timestamp with time zone NULL;
                     DO $$
                     BEGIN
                         IF NOT EXISTS (
@@ -133,10 +135,19 @@ public static class DbInitializer
                             FOREIGN KEY (""MemberId"") REFERENCES ""Members"" (""Id"") ON DELETE SET NULL;
                         END IF;
                     END $$;");
+
+                if (context.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true)
+                {
+                    var cols = await context.Database.SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Users')").ToListAsync();
+                    if (!cols.Contains("PasswordResetTokenHash"))
+                        await context.Database.ExecuteSqlRawAsync("ALTER TABLE Users ADD COLUMN PasswordResetTokenHash TEXT NULL;");
+                    if (!cols.Contains("PasswordResetTokenExpiresAt"))
+                        await context.Database.ExecuteSqlRawAsync("ALTER TABLE Users ADD COLUMN PasswordResetTokenExpiresAt TEXT NULL;");
+                }
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Could not verify AppSettings or Users.MemberId column via raw SQL.");
+                logger.LogWarning(ex, "Could not verify AppSettings or Users columns via raw SQL.");
             }
         }
 

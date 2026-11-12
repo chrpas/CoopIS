@@ -13,5 +13,7 @@ public class UserAccount
     public Guid? MemberId { get; set; }
     public Member? Member { get; set; }
     public bool IsActive { get; set; } = true;
+    public string? PasswordResetTokenHash { get; set; }
+    public DateTime? PasswordResetTokenExpiresAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

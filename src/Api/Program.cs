@@ -11,6 +11,7 @@ using CoopIS.Application.Services;
 using CoopIS.Infrastructure.Data;
 using CoopIS.Infrastructure.Security;
 using CoopIS.Infrastructure.Services;
+using CoopIS.Infrastructure.Services.Email;
 using CoopIS.Infrastructure.Services.RemoteAccess;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -58,6 +59,14 @@ builder.Services.AddScoped<IDistributionService, DistributionService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IBankAccountService, BankAccountService>();
 builder.Services.AddScoped<ILoanQueueService, LoanQueueService>();
+
+// Email Dispatch Services & Configuration (Mailjet SMTP)
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IEmailConfigurationService, EmailConfigurationService>();
+builder.Services.AddScoped<SmtpEmailService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+
 builder.Services.AddSingleton<IRemoteAccessService, NgrokRemoteAccessService>();
 builder.Services.AddHostedService<RemoteAccessBackgroundService>();
 
@@ -75,6 +84,12 @@ builder.Services.AddRateLimiter(options =>
     options.AddFixedWindowLimiter("LoginRateLimiter", opt =>
     {
         opt.PermitLimit = 30;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueLimit = 0;
+    });
+    options.AddFixedWindowLimiter("ForgotPasswordRateLimiter", opt =>
+    {
+        opt.PermitLimit = 5;
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueLimit = 0;
     });

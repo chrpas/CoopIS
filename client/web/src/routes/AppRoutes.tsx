@@ -4,6 +4,8 @@ import { useAuth } from "../context/AuthContext";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { AppLayout } from "../components/layout/AppLayout";
 import { LoginPage } from "../features/auth/LoginPage";
+import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LoansPage } from "../features/loans/LoansPage";
 import { MembersPage } from "../features/members/MembersPage";
@@ -40,6 +42,8 @@ export const AppRoutes: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/" element={<RootRedirect />} />
 
       <Route

@@ -22,7 +22,12 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      if (!window.location.pathname.includes("/login")) {
+      const pathname = window.location.pathname;
+      if (
+        !pathname.includes("/login") &&
+        !pathname.includes("/forgot-password") &&
+        !pathname.includes("/reset-password")
+      ) {
         localStorage.removeItem("coop_jwt_token");
         localStorage.removeItem("coop_user_profile");
         window.location.href = "/login";

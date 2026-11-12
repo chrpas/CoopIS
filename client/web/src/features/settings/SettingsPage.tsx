@@ -20,6 +20,7 @@ import {
   Layers,
   Shield,
   Globe,
+  Mail,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -33,9 +34,10 @@ import { userService } from "../../services/userService";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import { CreateUserModal } from "./CreateUserModal";
 import { RemoteAccessTab } from "./RemoteAccessTab";
+import { EmailSettingsTab } from "./EmailSettingsTab";
 import { FiscalYearScheduleManager } from "./FiscalYearScheduleManager";
 
-type SettingsTab = "users" | "general" | "security" | "remote-access";
+type SettingsTab = "users" | "general" | "security" | "remote-access" | "email";
 
 export const SettingsPage: React.FC = () => {
   const { user: currentUser } = useAuth();
@@ -43,7 +45,7 @@ export const SettingsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as SettingsTab) || "users";
   const [activeTab, setActiveTab] = useState<SettingsTab>(
-    ["users", "general", "security", "remote-access"].includes(initialTab) ? initialTab : "users"
+    ["users", "general", "security", "remote-access", "email"].includes(initialTab) ? initialTab : "users"
   );
 
   // User management state
@@ -500,6 +502,18 @@ export const SettingsPage: React.FC = () => {
         >
           <Globe className="w-4 h-4" />
           <span>Remote Access (ngrok)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("email")}
+          className={`flex items-center gap-2 px-4 py-3 text-xs font-bold border-b-2 transition-all shrink-0 ${
+            activeTab === "email"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+          }`}
+        >
+          <Mail className="w-4 h-4" />
+          <span>Email Configuration</span>
         </button>
       </div>
 
@@ -1386,6 +1400,9 @@ export const SettingsPage: React.FC = () => {
 
       {/* TAB 4: REMOTE ACCESS (NGROK) */}
       {activeTab === "remote-access" && <RemoteAccessTab />}
+
+      {/* TAB 5: EMAIL CONFIGURATION */}
+      {activeTab === "email" && <EmailSettingsTab />}
 
       {/* CREATE USER MODAL */}
       <CreateUserModal

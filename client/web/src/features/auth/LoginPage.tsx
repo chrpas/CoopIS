@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
 import { Landmark, Shield, User, UserCheck, Users, Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2, RefreshCw, Eye, EyeOff } from "lucide-react";
@@ -147,7 +147,7 @@ export const LoginPage: React.FC = () => {
         </div>
         <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">CoopIS Portal</h2>
         <p className="mt-1.5 sm:mt-2 text-xs sm:text-sm text-slate-300">
-          Clean Architecture Cooperative Management System
+          Cooperative Management System
         </p>
 
         {/* Backend & Database Readiness Indicator */}
@@ -211,9 +211,17 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700">
+                  Password
+                </label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline transition-colors"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <Lock className="w-4 h-4" />

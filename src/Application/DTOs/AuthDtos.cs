@@ -16,3 +16,9 @@ public record UserDto(
 );
 
 public record LoginResponse(string Token, UserDto User);
+
+public record ForgotPasswordRequest(string Email);
+
+public record ResetPasswordRequest(string Email, string Token, string NewPassword);
+
+public record AuthMessageResponse(string Message);
