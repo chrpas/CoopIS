@@ -61,7 +61,27 @@ flowchart LR
 
 ---
 
-## 5. Daily Operating Checklist for Cooperative Managers
+## 5. Member Self-Service Portal Dashboard
+
+When an authenticated user with the **Member** role logs in, they are presented with their dedicated self-service overview:
+
+1. **Member Header & Identifiers**:
+   - Displays full name, Member Code (e.g., `MEM-2026-003`), and membership badge.
+2. **Personal Equity & Credit KPIs**:
+   - **My Share Capital**: Real-time cumulative contributions remitted to date with total cutoffs count.
+   - **Active Loan Balance**: Current outstanding loan balance across all active amortizations.
+   - **Next Cutoff Repayment**: Amount due on the upcoming semi-monthly payroll cutoff.
+3. **FIFO Loan Queue Integration**:
+   - **"Need Financial Assistance? Apply for a Loan" Panel**: Dedicated action banner with a **"Request Loan"** button launching the 7-tier preview modal (₱1,000–₱80,000).
+   - **Live Loan Queue Tracker Card**:
+     - Activates automatically upon submitting a loan request.
+     - Displays the member's current **Queue Position** (e.g., `Position #1 · Next in line for bank fund release` or `X ahead in line`).
+     - Shows the **Estimated Funding Cutoff** date and real-time status badge (`In Line for Funding`, `Board Reviewing`, `Ready for Funding`).
+     - Automatically clears from the dashboard once disbursed, with the new credit account appearing directly in their loan portfolio.
+
+---
+
+## 6. Daily Operating Checklist for Cooperative Managers
 
 1. **Morning Review**:
    - Check the **Active Members** count for pending KYC onboarding.
@@ -73,7 +93,7 @@ flowchart LR
 
 ---
 
-## 6. Frequently Asked Questions (FAQ)
+## 7. Frequently Asked Questions (FAQ)
 
 **Q: Why does the Interest Earned card differ from Depository Bank Cash?**  
 *A*: Upfront loan interest is recognized upon loan origination and credited to the cooperative's distributable surplus pool. Cash in bank reflects actual physical depository balances, which change as loans are disbursed and repayments are collected.

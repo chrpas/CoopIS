@@ -5,18 +5,20 @@ Comprehensive operating manual, financial formula specification, and administrat
 ---
 
 ## 📑 Table of Contents
-1. [Executive Dashboard (`/dashboard`)](#1-executive-dashboard-dashboard)
+1. [Executive Dashboard & Member Portal (`/dashboard`)](#1-executive-dashboard--member-portal-dashboard)
 2. [Member Assembly & Registry (`/members`)](#2-member-assembly--registry-members)
 3. [Capital Contributions & Share Build-up (`/contributions`)](#3-capital-contributions--share-build-up-contributions)
-4. [Credit Management & Loan Portfolios (`/loans`)](#4-credit-management--loan-portfolios-loans)
-5. [General Ledger & Depository Bank Reconciliation (`/accounting`)](#5-general-ledger--depository-bank-reconciliation-accounting)
+4. [Credit Management, Loan Portfolios & FIFO Queue (`/loans`)](#4-credit-management-loan-portfolios--fifo-queue-loans)
+5. [General Ledger, Bank Reconciliation & Accounts (`/accounting`)](#5-general-ledger-bank-reconciliation--accounts-accounting)
 6. [Statutory Surplus & Patronage Distribution (`/distribution`)](#6-statutory-surplus--patronage-distribution-distribution)
 
 ---
 
-## 1. Executive Dashboard (`/dashboard`)
+## 1. Executive Dashboard & Member Portal (`/dashboard`)
 
-The **Executive Dashboard** is the primary executive overview for cooperative managers, directors, and auditors.
+The **Dashboard** adapts based on authenticated user roles:
+- **Executive View (Admin & Officers)**: Central solvency indicators, capital build-up vs. release velocity, credit portfolio health, and operational quick actions.
+- **Member Self-Service View (Members)**: Personal share capital, active loan balance, next cutoff repayment due, **"Need Financial Assistance? Apply for a Loan"** action panel, and the real-time **Loan Queue Tracker** card.
 
 ### Key Metrics
 - **Active Members**: Count of verified members in good standing (`Status == 'ACTIVE'`).
@@ -72,9 +74,9 @@ The **Capital Contributions** module tracks member equity across the 24 annual s
 
 ---
 
-## 4. Credit Management & Loan Portfolios (`/loans`)
+## 4. Credit Management, Loan Portfolios & FIFO Queue (`/loans`)
 
-The **Credit Management** module controls loan origination, interest computation, net disbursement, amortization scheduling, installment collection, and delinquency penalties.
+The **Credit Management** module controls loan origination, interest computation, net disbursement, amortization scheduling, installment collection, delinquency penalties, and the beginning-of-year **FIFO Loan Priority Queue**.
 
 ### Mathematical Formulas
 1. **Upfront Interest & Net Proceeds**:
@@ -88,6 +90,23 @@ The **Credit Management** module controls loan origination, interest computation
    - On Day 15 post-cutoff, unpaid balances incur:
      $$\text{Late Penalty} = \text{Unpaid Balance} \times \text{Late Penalty Rate \%}$$
 
+### The 7-Tier Cooperative Loan Matrix
+| Tier | Principal Range (₱) | Term | Cutoffs | Amortization / Cutoff | Upfront Int. (5%) |
+|---|---|---|---|---|---|
+| **Tier 1** | ₱1,000 – ₱5,000 | 2 Months | 4 Cutoffs | $\text{Principal} / 4$ | ₱50 – ₱250 |
+| **Tier 2** | ₱5,001 – ₱15,000 | 3 Months | 6 Cutoffs | $\text{Principal} / 6$ | ₱250.05 – ₱750 |
+| **Tier 3** | ₱15,001 – ₱25,000 | 4 Months | 8 Cutoffs | $\text{Principal} / 8$ | ₱750.05 – ₱1,250 |
+| **Tier 4** | ₱25,001 – ₱35,000 | 5 Months | 10 Cutoffs | $\text{Principal} / 10$ | ₱1,250.05 – ₱1,750 |
+| **Tier 5** | ₱35,001 – ₱50,000 | 6 Months | 12 Cutoffs | $\text{Principal} / 12$ | ₱1,750.05 – ₱2,500 |
+| **Tier 6** | ₱50,001 – ₱70,000 | 7 Months | 14 Cutoffs | $\text{Principal} / 14$ | ₱2,500.05 – ₱3,500 |
+| **Tier 7** | ₱70,001 – ₱80,000 | 8 Months | 16 Cutoffs | $\text{Principal} / 16$ | ₱3,500.05 – ₱4,000 |
+
+### FIFO Loan Priority Queue (`/loans/queue` or tab in `/loans`)
+- **Liquidity Safeguard**: Computes aggregate primary bank balances minus a **20% statutory liquid reserve cushion**.
+- **Sequential FIFO Order**: Requests are submitted by members or loan officers, assigned an immutable sequential `QueueNumber`, and processed in strict order.
+- **Atomic Disbursement & Fund**: Admin verifies available liquid reserves, deducts net cash from the primary `BankAccount`, originates the formal `Loan`, and transitions status to `Disbursed`.
+- **Operational Table Filter**: Defaults to **"Active Queue"** (`Queued`, `UnderReview`, `ReadyForFunding`); completed loans automatically clear from the active queue into the **"Disbursed"** history tab upon funding.
+
 ### Expandable Portfolio UI
 - **Borrower Row**: Summary metrics per borrower (Active Principal, Repayment Progress %, Remaining Balance, Semi-Monthly Due, and Total Late Penalties).
 - **Sub-Rows**: Nested table listing all loans (Reference, Principal, Net Release, Progress, Status, and Actions).
@@ -100,9 +119,17 @@ The **Credit Management** module controls loan origination, interest computation
 
 ---
 
-## 5. General Ledger & Depository Bank Reconciliation (`/accounting`)
+## 5. General Ledger, Bank Reconciliation & Accounts (`/accounting`)
 
-The **Accounting & Bank Reconciliation** module maintains the Statement of Financial Position and reconciles physical bank balances against internal book balances. *(Admin Only)*
+The **Accounting & Bank Reconciliation** module maintains the Statement of Financial Position, reconciles physical bank balances against internal book balances, and manages institutional depository accounts. *(Admin Only)*
+
+### Institutional Bank Account Management (`/accounting/bank-accounts`)
+- **Depository Directory**: Manage bank accounts (e.g., Land Bank of the Philippines) with account numbers, current balances, and primary account designations.
+- **20% Statutory Reserve Cushion**:
+  $$\text{Available Liquid Cash} = \text{Primary Bank Balance} - (\text{Primary Bank Balance} \times 0.20)$$
+  Protects cooperative liquidity by guaranteeing that credit disbursements cannot exceed available funds after the safety cushion.
+- **Reconciliation & Adjustments**: Adjust physical balances to match certified bank slips with audit logging.
+- **Security & RBAC**: Restricted strictly to the **Admin** role; attempts by non-admins return `403 Forbidden`.
 
 ### Core Equations
 1. **Depository True Book Cash Balance**:

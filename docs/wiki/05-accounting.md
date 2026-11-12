@@ -99,9 +99,42 @@ When the official depository bank statement arrives (typically at end-of-month):
    - Reconciled Variance at time of posting.
    - Timestamp and administrative notes.
 
+### C. Institutional Bank Account Management (`/accounting/bank-accounts`)
+CoopIS provides dedicated management of the cooperative's institutional depository bank accounts:
+
+```mermaid
+flowchart LR
+    A["Primary Bank Account<br/>Current Balance: ₱576,096.76"] --> B["20% Statutory Liquid Cushion<br/>(Locked: ₱115,219.35)"]
+    A --> C["Available Lending Cash<br/>(Clearing: ₱460,877.41)"]
+    C --> D["FIFO Loan Queue System"]
+```
+
+1. **Role Permissions & Security**:
+   - Strictly restricted to **Administrator** (`[Authorize(Roles = "Admin")]`).
+   - Hidden from sidebar navigation for Loan Officers (`User`) and `Member` roles. Unauthorized API requests receive a strict `403 Forbidden`.
+2. **Depository Account Directory**:
+   - Displays all registered accounts: **Bank Name**, **Account Number**, **Account Name**, **Current Balance**, **Primary Status**, and **Last Reconciled At**.
+   - Identifies the primary operational disbursement account (e.g., Land Bank of the Philippines).
+3. **The 20% Statutory Reserve Cushion**:
+   - To safeguard banking solvency and liquidity against emergency runoffs or operational payroll, the system computes:
+     $$\text{Reserve Cushion Amount} = \text{Total Primary Bank Balances} \times 0.20$$
+     $$\text{Available Liquid Cash for Lending} = \text{Total Primary Bank Balances} - \text{Reserve Cushion Amount}$$
+   - The **Available Liquid Cash** figure is fed directly into the **FIFO Loan Queue System** to regulate loan disbursements.
+4. **Account Registration & Balance Reconciliation**:
+   - **+ Add Bank Account**: Modal to register new institutional accounts with initial balances.
+   - **Reconcile Balance**: Action modal allowing administrators to audit-adjust the physical balance to match verified bank slips with mandatory reason logging.
+
 ---
 
-## 5. Frequently Asked Questions (FAQ)
+## 5. Critical Safeguards & Invariants
+
+- **Zero-Tolerance Variance Checks**: Any variance $> \text{₱0.01}$ triggers prominent visual alerts on the balance sheet.
+- **Strict Liquidity Barrier**: Loan disbursements from the FIFO Queue cannot breach the 20% liquid reserve cushion on primary bank accounts.
+- **Atomic Balance Updates**: Loan disbursements and bank reconciliations run inside isolated database transactions (`using var transaction = await _context.Database.BeginTransactionAsync()`), preventing race conditions and partial ledger updates.
+
+---
+
+## 6. Frequently Asked Questions (FAQ)
 
 **Q: What is the difference between "Current Variance" and "True Book Balance"?**  
 *A*: **True Book Balance** is the internal cash balance that should exist in the cooperative bank account based on all logged transactions (contributions + repayments + interest - disbursements). **Current Variance** is the difference between that internal book calculation and the physical balance declared on your official bank statement.

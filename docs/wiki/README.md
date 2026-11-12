@@ -8,11 +8,11 @@ Welcome to the official **CoopIS Operations Wiki**. This knowledge base contains
 
 | Chapter | Module Route | Summary | Target Audience |
 |---|---|---|---|
-| [**1. Executive Dashboard**](01-dashboard.md) | `/dashboard` | Solvency KPIs, portfolio breakdown, liquidity monitoring & quick actions | Board, Auditors, Admin, Officers |
+| [**1. Executive Dashboard**](01-dashboard.md) | `/dashboard` | Solvency KPIs, member portal, live loan queue tracker & quick actions | Board, Auditors, Admin, Members |
 | [**2. Member Assembly & Registry**](02-members.md) | `/members` | Member KYC, onboarding directory, profile drawers & status controls | Admin, Membership Committee |
 | [**3. Capital Contributions**](03-contributions.md) | `/contributions` | 24-cutoff build-up, 5-day grace periods, late penalties & statement drawers | Cashier, Accountant, Admin |
-| [**4. Credit Management & Loans**](04-loans.md) | `/loans` | Loan origination, amortization schedules, 14-day grace, late penalties & repayments | Credit Officers, Treasurers, Admin |
-| [**5. General Ledger & Bank Recon**](05-accounting.md) | `/accounting` | Statement of Financial Position, depository bank recon, True Book Balance & variance | Bookkeeper, Auditor, Admin |
+| [**4. Credit Management & Loans**](04-loans.md) | `/loans` | Loan origination, FIFO priority queue, 7-tier matrix, 14-day grace & repayments | Credit Officers, Treasurers, Admin |
+| [**5. General Ledger & Bank Recon**](05-accounting.md) | `/accounting` | Statement of Financial Position, bank accounts, 20% liquid reserve cushion & recon | Bookkeeper, Auditor, Admin |
 | [**6. Surplus & Patronage Distribution**](06-distribution.md) | `/distribution` | Statutory surplus partitioning (65/30/5), member dividend & patronage refund formulas | General Assembly, Board, Admin |
 
 ---

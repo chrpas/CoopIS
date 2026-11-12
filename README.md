@@ -33,6 +33,15 @@ For complete operational walkthroughs, mathematical formulas, role permissions, 
 - **Reusable Fiscal Year Schedule Generator** located in **Site Settings**, allowing administrators to generate or inspect 24-cutoff schedules for any target fiscal year.
 
 ### 💼 Loan Portfolio & Credit Management (`/loans`)
+- **FIFO Loan Priority Queue System (`/loans/queue` or tab in `/loans`)**:
+  - Transparent First-In, First-Out queue addressing early-year liquidity constraints where loan demands exceed immediate cash balances.
+  - **7-Tier Progressive Loan Matrix**: Configured across amounts from ₱1,000 to ₱80,000 (2 to 8 months; 4 to 16 cutoffs) with standardized 5% upfront interest deduction.
+  - **Available Liquidity Verification**: Live liquidity banner computing unallocated primary bank reserves minus a 20% statutory cushion before approving release.
+  - **Atomic Disbursal & Funding**: Deducts principal from the primary institutional bank account, generates a formal amortized loan with semi-monthly schedules, and transitions queue status to `Disbursed`.
+  - **Active Operational Filter**: Defaults to `Active Queue` (`Queued`, `UnderReview`, `ReadyForFunding`); funded loans automatically clear upon disbursement into the permanent `Disbursed` audit archive.
+- **Member Self-Service Queue Tracker (`/dashboard`)**:
+  - Dedicated **Need Financial Assistance? Apply for a Loan** application action on the member portal.
+  - Real-time **Loan Queue Tracker Card** displaying current queue position (e.g., `Position #1 · Next in line for bank fund release` or `X ahead in line`), estimated funding cutoff, and live status badge.
 - **Expandable Distinct Borrower Rows**:
   - Displays one distinct row per borrower (with filter toggles for **Borrowers with Active Loans** vs. **All Borrowers**).
   - Summarizes borrower-level metrics: **Loan Accounts Badge** (Active / Paid), **Active Principal**, **Repayment Progress**, **Total Active Balance**, **Semi-Monthly Due**, and **Total Late Penalties** (computed across all schedule entries of all loans).
@@ -60,9 +69,15 @@ For complete operational walkthroughs, mathematical formulas, role permissions, 
   - **5-Day Contribution Grace Period & Late Penalty Assessment**: Members have **5 calendar days** after each cutoff date before the shared **Late Penalty Charge Rate** (same rate as loans) is imposed on delayed contributions.
   - Includes filter tabs (`All`, `Contributed`, `Delayed / Penalty`) and a **Late Penalties** summary card.
 
-### ⚖️ Depository Bank Reconciliation (`/accounting`)
-- Statements audit reconciling cash in bank, withholding taxes, gross bank interest, and net earnings.
-- Automated variance detection with zero-tolerance balance flags *(Admin only)*.
+### ⚖️ Depository Bank Reconciliation & Accounts (`/accounting`)
+- **Institutional Bank Account Management (`/accounting/bank-accounts`)**:
+  - Depository accounts directory (Bank Name, Account Number, Account Name, Balance, Primary status, Last Reconciled At).
+  - **20% Statutory Reserve Cushion**: Enforces a non-negotiable 20% liquid reserve cushion on primary accounts, safeguarding liquidity prior to loan disbursement releases.
+  - Action modals for registering new bank accounts and audit-reconciling physical balances with reason logging.
+  - Strict RBAC: **Admin Only** via `[Authorize(Roles = "Admin")]`; hidden from sidebar for `User` and `Member` roles.
+- **Monthly Bank Statement Reconciliation**:
+  - Statements audit reconciling physical cash in bank, withholding taxes, gross bank interest, and net earnings.
+  - Automated variance detection with zero-tolerance balance flags *(Admin only)*.
 
 ### 📊 Statutory Surplus & Patronage Distribution (`/distribution`)
 - Statutory year-end net surplus partitioning:
@@ -90,11 +105,11 @@ CoopIS follows **Clean Architecture** with strict layer separation:
 Domain ← Application ← Infrastructure ← Api
 ```
 
-- **`src/Domain`** — Pure domain entities (`UserAccount`, `Member`, `CutoffPeriod`, `Contribution`, `Loan`, `LoanRepayment`, `BankReconciliation`, `SurplusDistribution`, `MemberSurplusLedger`, `AppSetting`), enums, and domain exceptions. Zero external dependencies.
-- **`src/Application`** — DTO contracts, service interfaces (`ITokenService`, `IFinancialPolicyService`, `IMemberService`, `IContributionService`, `IAccountingService`, `IDistributionService`), password hashing abstraction (`IPasswordHasher`). Depends only on Domain.
-- **`src/Infrastructure`** — EF Core `AppDbContext`, Npgsql PostgreSQL provider, fluent precision configurations (`decimal(14, 2)`, `decimal(10, 8)`, `decimal(5, 4)`), `Restrict` delete behaviors, financial policy snapshot persistence (`FinancialPolicyService`), and JWT security token service.
-- **`src/Api`** — ASP.NET Core Web API, REST controllers (`Auth`, `Members`, `Loans`, `Contributions`, `CutoffPeriods`, `Accounting`, `Distribution`, `FinancialPolicy`, `Users`, `Ngrok`), RFC 7807 global exception middleware, Swagger documentation, and dependency injection composition root.
-- **`client/web`** — React 18+ Vite + TypeScript + Tailwind CSS with feature-driven architecture (`features/auth`, `features/dashboard`, `features/loans`, `features/members`, `features/contributions`, `features/accounting`, `features/distribution`, `features/settings`) and reusable UI primitives (`TablePagination`, `AppLayout`, `Toast`).
+- **`src/Domain`** — Pure domain entities (`UserAccount`, `Member`, `CutoffPeriod`, `Contribution`, `Loan`, `LoanRepayment`, `BankAccount`, `LoanQueueEntry`, `BankReconciliation`, `SurplusDistribution`, `MemberSurplusLedger`, `AppSetting`), enums (`LoanQueueStatus`, `MemberStatus`, `PaymentChannel`), and domain exceptions. Zero external dependencies.
+- **`src/Application`** — DTO contracts, service interfaces (`ITokenService`, `IFinancialPolicyService`, `IMemberService`, `IContributionService`, `IAccountingService`, `IDistributionService`, `IBankAccountService`, `ILoanQueueService`), password hashing abstraction (`IPasswordHasher`). Depends only on Domain.
+- **`src/Infrastructure`** — EF Core `AppDbContext`, Npgsql PostgreSQL & SQLite providers, fluent precision configurations (`decimal(14, 2)`, `decimal(10, 8)`, `decimal(5, 4)`), `Restrict` delete behaviors, financial policy snapshot persistence (`FinancialPolicyService`), bank reserve cushion computation (`BankAccountService`), FIFO queue transaction processing (`LoanQueueService`), and JWT security token service.
+- **`src/Api`** — ASP.NET Core Web API, REST controllers (`Auth`, `Members`, `Loans`, `LoanQueue`, `BankAccounts`, `Contributions`, `CutoffPeriods`, `Accounting`, `Distribution`, `FinancialPolicy`, `Users`, `Ngrok`), RFC 7807 global exception middleware, Swagger documentation, and dependency injection composition root.
+- **`client/web`** — React 18+ Vite + TypeScript + Tailwind CSS with feature-driven architecture (`features/auth`, `features/dashboard`, `features/loans`, `features/members`, `features/contributions`, `features/accounting`, `features/distribution`, `features/settings`) and reusable UI primitives (`TablePagination`, `AppLayout`, `Toast`, `LoanQueueTrackerCard`, `MemberLoanApplicationModal`, `LoanQueueWorkspace`, `BankAccountsPage`).
 
 ---
 
