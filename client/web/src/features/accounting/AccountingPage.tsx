@@ -9,6 +9,7 @@ import {
   CreateBankReconPayload,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
+import { useAuth } from "../../context/AuthContext";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import {
   Scale,
@@ -26,6 +27,8 @@ import {
 } from "lucide-react";
 
 export const AccountingPage: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "Admin";
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -255,9 +258,15 @@ export const AccountingPage: React.FC = () => {
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               General Ledger & Fund Reconciliation
             </h2>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Admin Only
-            </span>
+            {isAdmin ? (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Admin Controls
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                Read-Only Ledger
+              </span>
+            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Real-time Statement of Financial Position, Bank Reconciliation, and Total Fund verification.
@@ -279,25 +288,27 @@ export const AccountingPage: React.FC = () => {
             Refresh Books
           </button>
 
-          <button
-            onClick={() => setIsReconModalOpen(true)}
-            disabled={isReconDisabled}
-            title={
-              unreconciledCutoffs.length === 0
-                ? "All cutoff periods are already reconciled."
-                : !hasVariance
-                ? "Books are currently balanced & reconciled (₱0.00 variance). No reconciliation needed."
-                : "Post bank statement reconciliation"
-            }
-            className={`flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm ${
-              isReconDisabled
-                ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-70"
-                : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 cursor-pointer"
-            }`}
-          >
-            <Plus className="w-4 h-4" />
-            Post Bank Reconciliation
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setIsReconModalOpen(true)}
+              disabled={isReconDisabled}
+              title={
+                unreconciledCutoffs.length === 0
+                  ? "All cutoff periods are already reconciled."
+                  : !hasVariance
+                  ? "Books are currently balanced & reconciled (₱0.00 variance). No reconciliation needed."
+                  : "Post bank statement reconciliation"
+              }
+              className={`flex items-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm ${
+                isReconDisabled
+                  ? "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-70"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/10 cursor-pointer"
+              }`}
+            >
+              <Plus className="w-4 h-4" />
+              Post Bank Reconciliation
+            </button>
+          )}
         </div>
       </div>
 
@@ -841,24 +852,26 @@ export const AccountingPage: React.FC = () => {
                 Depository bank ledger records with gross interest and withholding tax breakdown.
               </p>
             </div>
-            <button
-              onClick={() => setIsReconModalOpen(true)}
-              disabled={isReconDisabled}
-              title={
-                unreconciledCutoffs.length === 0
-                  ? "All cutoff periods are already reconciled."
-                  : !hasVariance
-                  ? "Books are currently balanced & reconciled (₱0.00 variance)."
-                  : "Post new statement"
-              }
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 border ${
-                isReconDisabled
-                  ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-70"
-                  : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 cursor-pointer"
-              }`}
-            >
-              <Plus className="w-3.5 h-3.5" /> New Statement
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setIsReconModalOpen(true)}
+                disabled={isReconDisabled}
+                title={
+                  unreconciledCutoffs.length === 0
+                    ? "All cutoff periods are already reconciled."
+                    : !hasVariance
+                    ? "Books are currently balanced & reconciled (₱0.00 variance)."
+                    : "Post new statement"
+                }
+                className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 border ${
+                  isReconDisabled
+                    ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-70"
+                    : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200 cursor-pointer"
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" /> New Statement
+              </button>
+            )}
           </div>
 
           {isLoadingRecons ? (

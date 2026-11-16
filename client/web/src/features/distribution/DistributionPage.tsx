@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 import {
   CutoffPeriod,
   DistributionPreview,
@@ -24,15 +25,19 @@ import {
   Receipt,
   FileText,
   BadgeAlert,
+  UserCheck,
+  Wallet,
+  HandCoins,
 } from "lucide-react";
 
 export const DistributionPage: React.FC = () => {
+  const { user } = useAuth();
+  const isMember = user?.role === "Member";
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
   // Selected Fiscal Year (defaults to 2026)
   const [fiscalYear, setFiscalYear] = useState<number>(2026);
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Table sorting & filtering
   const [searchTerm, setSearchTerm] = useState<string>("");
@@ -68,12 +73,28 @@ export const DistributionPage: React.FC = () => {
     data: preview,
     isLoading: isLoadingPreview,
   } = useQuery<DistributionPreview>({
-    queryKey: ["distribution-preview", fiscalYear],
+    queryKey: ["distribution-preview", fiscalYear, user?.role, user?.memberId],
     queryFn: async () => {
       const res = await api.get<DistributionPreview>(`/distribution/preview/${fiscalYear}`);
       return res.data;
     },
   });
+
+  // Logged-in member's personal allocation (backend already scopes preview.allocations to the logged-in member for Member role)
+  const myAllocation = useMemo<MemberAllocation | null>(() => {
+    if (!preview?.allocations || preview.allocations.length === 0) return null;
+    if (user?.memberId) {
+      const byId = preview.allocations.find((a) => a.memberId === user.memberId);
+      if (byId) return byId;
+    }
+    if (user?.memberCode) {
+      const byCode = preview.allocations.find(
+        (a) => a.memberCode.toLowerCase() === user.memberCode?.toLowerCase()
+      );
+      if (byCode) return byCode;
+    }
+    return preview.allocations[0] || null;
+  }, [preview?.allocations, user?.memberId, user?.memberCode]);
 
   // 2. Fetch Selected Member SOA when modal is open
   const {
@@ -129,7 +150,7 @@ export const DistributionPage: React.FC = () => {
     }
   };
 
-  // Filtered & Sorted Allocations
+  // Filtered & Sorted Allocations (Admin table)
   const filteredAllocations = useMemo(() => {
     if (!preview?.allocations) return [];
     let list = [...preview.allocations];
@@ -225,9 +246,15 @@ export const DistributionPage: React.FC = () => {
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
               Fiscal Year-End Surplus Distribution & Patronage Refund
             </h2>
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-              Admin Only
-            </span>
+            {isMember ? (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                Member Self-Service
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Admin Only
+              </span>
+            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Statutory net surplus partitioning: {preview?.dividendWeightPercent ?? 65}% Dividend,{" "}
@@ -265,103 +292,6 @@ export const DistributionPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Fiscal Year-End Closeout Wizard Navigation Steps */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
-            <button
-              onClick={() => setWizardStep(1)}
-              className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
-                wizardStep === 1
-                  ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 shadow-xs"
-                  : "bg-slate-50/60 border-slate-200 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-                  wizardStep === 1 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
-                }`}
-              >
-                1
-              </div>
-              <div>
-                <div className="text-xs font-bold">Review Pools</div>
-                <div className="text-[10px] text-slate-500">
-                  {preview?.dividendWeightPercent ?? 65} / {preview?.patronageWeightPercent ?? 30} /{" "}
-                  {preview?.managementWeightPercent ?? 5} Split
-                </div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setWizardStep(2)}
-              className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
-                wizardStep === 2
-                  ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 shadow-xs"
-                  : "bg-slate-50/60 border-slate-200 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-                  wizardStep === 2 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
-                }`}
-              >
-                2
-              </div>
-              <div>
-                <div className="text-xs font-bold">Member Allocations</div>
-                <div className="text-[10px] text-slate-500">Interactive Preview</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                setWizardStep(3);
-                handleExportCsv();
-              }}
-              className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
-                wizardStep === 3
-                  ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 shadow-xs"
-                  : "bg-slate-50/60 border-slate-200 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-                  wizardStep === 3 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
-                }`}
-              >
-                3
-              </div>
-              <div>
-                <div className="text-xs font-bold">Export Preview</div>
-                <div className="text-[10px] text-slate-500">Excel / CSV Format</div>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setWizardStep(4)}
-              className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${
-                wizardStep === 4
-                  ? "bg-emerald-50/80 border-emerald-300 text-emerald-950 shadow-xs"
-                  : "bg-slate-50/60 border-slate-200 text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              <div
-                className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
-                  wizardStep === 4 ? "bg-emerald-600 text-white" : "bg-slate-200 text-slate-700"
-                }`}
-              >
-                4
-              </div>
-              <div>
-                <div className="text-xs font-bold">Finalize Closeout</div>
-                <div className="text-[10px] text-slate-500">Commit & Lock Cutoffs</div>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
-
       {isLoadingPreview ? (
         <div className="py-20 text-center bg-white border border-slate-200 rounded-2xl">
           <div className="w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
@@ -371,263 +301,508 @@ export const DistributionPage: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* STEP 1: REVIEW AGGREGATE POOLS */}
-          <div className="space-y-4">
-            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          {/* REVIEW AGGREGATE POOLS (Admin Only) */}
+          {!isMember && (
+            <div className="space-y-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                      <PieChart className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Total Distributable Interest & Pool Breakdown
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Sum of upfront loan interest, late penalties, and net bank interest.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-xs uppercase font-bold text-slate-400">
+                      Total Net Distributable
+                    </span>
+                    <div className="text-2xl font-black font-mono text-slate-900">
+                      ₱
+                      {(preview?.totalDistributableInterest || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3 Pool Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
+                  {/* Dividend Pool */}
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-5 relative overflow-hidden">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <TrendingUp className="w-4 h-4 text-emerald-600" />
+                        General Dividend ({preview?.dividendWeightPercent ?? 65}%)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                        Capital Build-Up
+                      </span>
+                    </div>
+                    <div className="text-2xl font-black font-mono text-emerald-950 mt-1">
+                      ₱
+                      {(preview?.dividendPool || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                    <p className="text-xs text-emerald-700 mt-2 leading-relaxed">
+                      Distributed pro-rata based on member share capital contributions.
+                    </p>
+                  </div>
+
+                  {/* Patronage Pool */}
+                  <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-5 relative overflow-hidden">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <Receipt className="w-4 h-4 text-blue-600" />
+                        Patronage Refund ({preview?.patronageWeightPercent ?? 30}%)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-900">
+                        Borrowing Volume
+                      </span>
+                    </div>
+                    <div className="text-2xl font-black font-mono text-blue-950 mt-1">
+                      ₱
+                      {(preview?.patronagePool || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                    <p className="text-xs text-blue-700 mt-2 leading-relaxed">
+                      Refunded pro-rata to borrowing members based on loan volume patronized.
+                    </p>
+                  </div>
+
+                  {/* Management Pool */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 relative overflow-hidden">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <Percent className="w-4 h-4 text-slate-500" />
+                        Management / Honoraria ({preview?.managementWeightPercent ?? 5}%)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
+                        Reserve & Admin
+                      </span>
+                    </div>
+                    <div className="text-2xl font-black font-mono text-slate-900 mt-1">
+                      ₱
+                      {(preview?.managementPool || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                      Allocated to cooperative committee honoraria and statutory reserves.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 2: MEMBER PORTAL PERSONAL ALLOCATION VIEW vs ADMIN ALL-MEMBER PREVIEW TABLE */}
+          {isMember ? (
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+              <div className="p-5 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                    <PieChart className="w-5 h-5" />
+                  <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold border border-sky-100">
+                    <UserCheck className="w-5 h-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-slate-900">
-                      Step 1: Total Distributable Interest & Pool Breakdown
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Sum of upfront loan interest, late penalties, and net bank interest.
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900">
+                        My Surplus & Patronage Allocation (FY {fiscalYear})
+                      </h3>
+                      {myAllocation?.memberCode && (
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-200/80 text-slate-700">
+                          {myAllocation.memberCode}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Personal dividend and patronage refund computation for{" "}
+                      <span className="font-semibold text-slate-700">
+                        {myAllocation?.memberName || user?.memberName || user?.username}
+                      </span>
                     </p>
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <span className="text-xs uppercase font-bold text-slate-400">Total Net Distributable</span>
-                  <div className="text-2xl font-black font-mono text-slate-900">
-                    ₱
-                    {(preview?.totalDistributableInterest || 0).toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {/* 3 Pool Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
-                {/* Dividend Pool */}
-                <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-5 relative overflow-hidden">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <TrendingUp className="w-4 h-4 text-emerald-600" />
-                      General Dividend ({preview?.dividendWeightPercent ?? 65}%)
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
-                      Capital Build-Up
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black font-mono text-emerald-950 mt-1">
-                    ₱{(preview?.dividendPool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                  <p className="text-xs text-emerald-700 mt-2 leading-relaxed">
-                    Distributed pro-rata based on member share capital contributions.
-                  </p>
-                </div>
-
-                {/* Patronage Pool */}
-                <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-5 relative overflow-hidden">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <Receipt className="w-4 h-4 text-blue-600" />
-                      Patronage Refund ({preview?.patronageWeightPercent ?? 30}%)
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-200 text-blue-900">
-                      Borrowing Volume
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black font-mono text-blue-950 mt-1">
-                    ₱{(preview?.patronagePool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                  <p className="text-xs text-blue-700 mt-2 leading-relaxed">
-                    Refunded pro-rata to borrowing members based on loan volume patronized.
-                  </p>
-                </div>
-
-                {/* Management Pool */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 relative overflow-hidden">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                      <Percent className="w-4 h-4 text-slate-500" />
-                      Management / Honoraria ({preview?.managementWeightPercent ?? 5}%)
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800">
-                      Reserve & Admin
-                    </span>
-                  </div>
-                  <div className="text-2xl font-black font-mono text-slate-900 mt-1">
-                    ₱{(preview?.managementPool || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                  </div>
-                  <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                    Allocated to cooperative committee honoraria and statutory reserves.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* STEP 2: INTERACTIVE MEMBER ALLOCATION PREVIEW TABLE */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-            <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-emerald-600" />
-                  Step 2: Member Allocation Preview & Pro-Rata Credits
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Click headers to sort. Select 'View SOA' to print individual member vouchers.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5">
-                <div className="relative w-64">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search member name or code..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full text-xs font-medium pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
-                  />
-                </div>
-
-                <button
-                  onClick={handleExportCsv}
-                  className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl transition-colors shadow-xs"
-                >
-                  <Download className="w-3.5 h-3.5 text-emerald-600" />
-                  Export CSV
-                </button>
-
-                {!preview?.isAlreadyFinalized && (
+                {myAllocation && (
                   <button
-                    onClick={() => setIsFinalizeModalOpen(true)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded-xl transition-all shadow-sm"
+                    onClick={() => setSelectedSoaMemberId(myAllocation.memberId)}
+                    className="inline-flex items-center justify-center gap-1.5 text-xs font-bold px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-xs cursor-pointer"
                   >
-                    <CheckCircle className="w-3.5 h-3.5" />
-                    Finalize FY {fiscalYear}
+                    <FileText className="w-4 h-4" />
+                    View / Print My Official SOA
                   </button>
                 )}
               </div>
-            </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-4">Member</th>
-                    <th
-                      onClick={() => handleSort("totalContribution")}
-                      className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
-                    >
-                      <div className="flex items-center justify-end gap-1">
-                        Total Capital (₱)
-                        <ArrowUpDown className="w-3 h-3" />
+              {!myAllocation ? (
+                <div className="p-12 text-center text-sm text-slate-500">
+                  No surplus allocation record found for your member profile in FY {fiscalYear}.
+                </div>
+              ) : (
+                <div className="p-6 space-y-6">
+                  {/* 4 Personal Allocation KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          My Share Capital
+                        </span>
+                        <Wallet className="w-4 h-4 text-slate-400" />
                       </div>
-                    </th>
-                    <th
-                      onClick={() => handleSort("dividendEarned")}
-                      className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
-                    >
-                      <div className="flex items-center justify-end gap-1">
-                        Dividend ({preview?.dividendWeightPercent ?? 65}%)
-                        <ArrowUpDown className="w-3 h-3" />
+                      <div className="text-xl font-black font-mono text-slate-900">
+                        ₱
+                        {myAllocation.totalContribution.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
                       </div>
-                    </th>
-                    <th
-                      onClick={() => handleSort("totalLoansBorrowed")}
-                      className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
-                    >
-                      <div className="flex items-center justify-end gap-1">
-                        Loan Volume (₱)
-                        <ArrowUpDown className="w-3 h-3" />
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        {(myAllocation.contributionRatio * 100).toFixed(2)}% of cooperative capital pool
                       </div>
-                    </th>
-                    <th
-                      onClick={() => handleSort("patronageEarned")}
-                      className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
-                    >
-                      <div className="flex items-center justify-end gap-1">
-                        Patronage ({preview?.patronageWeightPercent ?? 30}%)
-                        <ArrowUpDown className="w-3 h-3" />
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-900">
+                          My Dividend ({preview?.dividendWeightPercent ?? 65}%)
+                        </span>
+                        <TrendingUp className="w-4 h-4 text-emerald-600" />
                       </div>
-                    </th>
-                    <th
-                      onClick={() => handleSort("netSavingsCredited")}
-                      className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
-                    >
-                      <div className="flex items-center justify-end gap-1 font-bold text-emerald-800">
-                        Net Savings Credited
-                        <ArrowUpDown className="w-3 h-3" />
+                      <div className="text-xl font-black font-mono text-emerald-800">
+                        ₱
+                        {myAllocation.dividendEarned.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
                       </div>
-                    </th>
-                    <th className="py-3 px-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {paginatedAllocations.map((a) => (
-                    <tr key={a.memberId} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900">{a.memberName}</div>
-                        <div className="text-xs font-mono text-slate-400">{a.memberCode}</div>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
-                        ₱{a.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        <div className="text-[10px] text-slate-400">
-                          {(a.contributionRatio * 100).toFixed(2)}% share
+                      <div className="text-[11px] text-emerald-700 mt-1">
+                        Earned from share capital build-up
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-blue-900">
+                          My Patronage ({preview?.patronageWeightPercent ?? 30}%)
+                        </span>
+                        <HandCoins className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-xl font-black font-mono text-blue-800">
+                        ₱
+                        {myAllocation.patronageEarned.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </div>
+                      <div className="text-[11px] text-blue-700 mt-1">
+                        Loan Volume: ₱
+                        {myAllocation.totalLoansBorrowed.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}{" "}
+                        ({(myAllocation.loanRatio * 100).toFixed(2)}%)
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-slate-900 text-white">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                          Net Savings Credited
+                        </span>
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                      </div>
+                      <div className="text-xl font-black font-mono text-emerald-400">
+                        ₱
+                        {myAllocation.netSavingsCredited.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </div>
+                      <div className="text-[11px] text-slate-300 mt-1">
+                        Total Surplus Earned: ₱
+                        {myAllocation.totalSurplusEarned.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detailed Personal Computation Table */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Personal Surplus Entitlement Breakdown
+                      </span>
+                      <span className="text-xs font-mono text-slate-500">
+                        {preview?.isAlreadyFinalized ? "Final Audited Credit" : "Provisional Calculation"}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-100 text-sm">
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/60">
+                        <div>
+                          <div className="font-semibold text-slate-800">
+                            Accumulated Share Capital Contribution
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            Pro-rata share: {(myAllocation.contributionRatio * 100).toFixed(4)}% of ₱
+                            {(preview?.grandTotalContributions || 0).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}{" "}
+                            total cooperative capital
+                          </div>
                         </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
-                        ₱{a.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
-                        ₱{a.totalLoansBorrowed.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        <div className="text-[10px] text-slate-400">
-                          {(a.loanRatio * 100).toFixed(2)}% volume
+                        <div className="font-mono font-bold text-slate-900">
+                          ₱
+                          {myAllocation.totalContribution.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
                         </div>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700">
-                        ₱{a.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-800 text-sm">
-                        ₱{a.netSavingsCredited.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <button
-                          onClick={() => setSelectedSoaMemberId(a.memberId)}
-                          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-                        >
-                          <FileText className="w-3 h-3 text-slate-500" />
-                          View SOA
-                        </button>
-                      </td>
+                      </div>
+
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/60">
+                        <div>
+                          <div className="font-semibold text-emerald-800">
+                            (+) General Dividend Allocation ({preview?.dividendWeightPercent ?? 65}%)
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {(myAllocation.contributionRatio * 100).toFixed(4)}% × ₱
+                            {(preview?.dividendPool || 0).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}{" "}
+                            dividend pool
+                          </div>
+                        </div>
+                        <div className="font-mono font-bold text-emerald-700">
+                          ₱
+                          {myAllocation.dividendEarned.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/60">
+                        <div>
+                          <div className="font-semibold text-blue-800">
+                            (+) Patronage Refund Allocation ({preview?.patronageWeightPercent ?? 30}%)
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            {(myAllocation.loanRatio * 100).toFixed(4)}% loan volume share (₱
+                            {myAllocation.totalLoansBorrowed.toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}
+                            ) × ₱
+                            {(preview?.patronagePool || 0).toLocaleString("en-US", {
+                              minimumFractionDigits: 2,
+                            })}{" "}
+                            patronage pool
+                          </div>
+                        </div>
+                        <div className="font-mono font-bold text-blue-700">
+                          ₱
+                          {myAllocation.patronageEarned.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-3 flex items-center justify-between bg-emerald-50/50 font-bold">
+                        <div className="text-slate-900">
+                          (=) Total Year-End Surplus Earned (Dividend + Patronage)
+                        </div>
+                        <div className="font-mono text-emerald-800">
+                          ₱
+                          {myAllocation.totalSurplusEarned.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-3.5 flex items-center justify-between bg-slate-900 text-white font-extrabold">
+                        <div>Total Net Credited Savings (Share Capital + Surplus Earned)</div>
+                        <div className="font-mono text-base text-emerald-400">
+                          ₱
+                          {myAllocation.netSavingsCredited.toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+              <div className="p-4 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-emerald-600" />
+                    Member Allocation Preview & Pro-Rata Credits
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Click headers to sort. Select 'View SOA' to print individual member vouchers.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="relative w-64">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search member name or code..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full text-xs font-medium pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleExportCsv}
+                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl transition-colors shadow-xs"
+                  >
+                    <Download className="w-3.5 h-3.5 text-emerald-600" />
+                    Export CSV
+                  </button>
+
+                  {!preview?.isAlreadyFinalized && (
+                    <button
+                      onClick={() => setIsFinalizeModalOpen(true)}
+                      className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded-xl transition-all shadow-sm"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Finalize FY {fiscalYear}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Member</th>
+                      <th
+                        onClick={() => handleSort("totalContribution")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Total Capital (₱)
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("dividendEarned")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Dividend ({preview?.dividendWeightPercent ?? 65}%)
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("totalLoansBorrowed")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Loan Volume (₱)
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("patronageEarned")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          Patronage ({preview?.patronageWeightPercent ?? 30}%)
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("netSavingsCredited")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
+                        <div className="flex items-center justify-end gap-1 font-bold text-emerald-800">
+                          Net Savings Credited
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th className="py-3 px-4 text-center">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedAllocations.map((a) => (
+                      <tr key={a.memberId} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900">{a.memberName}</div>
+                          <div className="text-xs font-mono text-slate-400">{a.memberCode}</div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
+                          ₱{a.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          <div className="text-[10px] text-slate-400">
+                            {(a.contributionRatio * 100).toFixed(2)}% share
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
+                          ₱{a.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
+                          ₱{a.totalLoansBorrowed.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          <div className="text-[10px] text-slate-400">
+                            {(a.loanRatio * 100).toFixed(2)}% volume
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700">
+                          ₱{a.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-800 text-sm">
+                          ₱{a.netSavingsCredited.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            onClick={() => setSelectedSoaMemberId(a.memberId)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                          >
+                            <FileText className="w-3 h-3 text-slate-500" />
+                            View SOA
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-            <TablePagination
-              page={page}
-              pageSize={pageSize}
-              totalItems={filteredAllocations.length}
-              onPageChange={setPage}
-              onPageSizeChange={setPageSize}
-              itemLabel={`member allocations for FY ${fiscalYear}`}
-              extraContent={
-                <span>
-                  Total Surplus Credited:{" "}
-                  <span className="font-mono font-bold text-emerald-700">
-                    ₱
-                    {(
-                      (preview?.dividendPool || 0) + (preview?.patronagePool || 0)
-                    ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+              <TablePagination
+                page={page}
+                pageSize={pageSize}
+                totalItems={filteredAllocations.length}
+                onPageChange={setPage}
+                onPageSizeChange={setPageSize}
+                itemLabel={`member allocations for FY ${fiscalYear}`}
+                extraContent={
+                  <span>
+                    Total Surplus Credited:{" "}
+                    <span className="font-mono font-bold text-emerald-700">
+                      ₱
+                      {(
+                        (preview?.dividendPool || 0) + (preview?.patronagePool || 0)
+                      ).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    </span>
                   </span>
-                </span>
-              }
-            />
-          </div>
+                }
+              />
+            </div>
+          )}
         </>
       )}
 
       {/* 3. STEP 4: TWO-STEP FINALIZE CONFIRMATION MODAL */}
-      {isFinalizeModalOpen && (
+      {isFinalizeModalOpen && !isMember && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50/60">
@@ -636,7 +811,9 @@ export const DistributionPage: React.FC = () => {
                   <BadgeAlert className="w-5 h-5 text-amber-700" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900 text-base">Confirm Year-End Finalization</h3>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    Confirm Year-End Finalization
+                  </h3>
                   <p className="text-xs text-slate-500">Fiscal Year {fiscalYear} Closeout</p>
                 </div>
               </div>
@@ -655,9 +832,16 @@ export const DistributionPage: React.FC = () => {
               <p>By confirming this closeout:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-700 font-medium">
                 <li>All 24 semi-monthly payroll cutoffs for FY {fiscalYear} will be marked CLOSED.</li>
-                <li>24 new semi-monthly cutoffs (Jan-15 to Dec-31) will be automatically generated for FY {fiscalYear + 1}.</li>
-                <li>Dividend and Patronage balances will be permanently committed to member ledgers.</li>
-                <li>Net Credited Savings will update each member's official Statement of Account.</li>
+                <li>
+                  24 new semi-monthly cutoffs (Jan-15 to Dec-31) will be automatically generated for FY{" "}
+                  {fiscalYear + 1}.
+                </li>
+                <li>
+                  Dividend and Patronage balances will be permanently committed to member ledgers.
+                </li>
+                <li>
+                  Net Credited Savings will update each member's official Statement of Account.
+                </li>
               </ul>
 
               <div className="pt-2 border-t border-slate-100">
@@ -669,7 +853,8 @@ export const DistributionPage: React.FC = () => {
                     className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
                   />
                   <span className="text-xs font-semibold text-slate-800">
-                    I verify that the audit reconciliations and board resolutions have approved the FY {fiscalYear} distributions.
+                    I verify that the audit reconciliations and board resolutions have approved the
+                    FY {fiscalYear} distributions.
                   </span>
                 </label>
               </div>
@@ -721,7 +906,9 @@ export const DistributionPage: React.FC = () => {
                   onClick={handlePrintSoa}
                   className="flex items-center gap-1.5 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer"
                 >
-                  <Printer className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Print / Save as PDF</span><span className="sm:hidden">Print</span>
+                  <Printer className="w-3.5 h-3.5" />{" "}
+                  <span className="hidden sm:inline">Print / Save as PDF</span>
+                  <span className="sm:hidden">Print</span>
                 </button>
                 <button
                   onClick={() => setSelectedSoaMemberId(null)}
@@ -736,7 +923,9 @@ export const DistributionPage: React.FC = () => {
             {isLoadingSoa ? (
               <div className="py-24 text-center">
                 <div className="w-8 h-8 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                <p className="text-xs text-slate-500 font-medium">Generating official member statement...</p>
+                <p className="text-xs text-slate-500 font-medium">
+                  Generating official member statement...
+                </p>
               </div>
             ) : soaData ? (
               <div id="soa-printable-voucher" className="p-4 sm:p-8 text-slate-900 space-y-6">
@@ -785,7 +974,10 @@ export const DistributionPage: React.FC = () => {
                     <div className="p-3 bg-slate-50 rounded-lg">
                       <div className="text-slate-500 font-medium">Contribution Capital</div>
                       <div className="font-mono font-bold text-sm text-slate-900 mt-1">
-                        ₱{soaData.totalContributions.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        ₱
+                        {soaData.totalContributions.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
                       </div>
                       <div className="text-[10px] text-slate-400">
                         Ratio: {(soaData.contributionRatio * 100).toFixed(4)}%
@@ -795,7 +987,10 @@ export const DistributionPage: React.FC = () => {
                     <div className="p-3 bg-emerald-50 rounded-lg">
                       <div className="text-emerald-800 font-medium">Dividend (65%)</div>
                       <div className="font-mono font-bold text-sm text-emerald-900 mt-1">
-                        ₱{soaData.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        ₱
+                        {soaData.dividendEarned.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
                       </div>
                       <div className="text-[10px] text-emerald-600">Capital Build-up</div>
                     </div>
@@ -803,7 +998,10 @@ export const DistributionPage: React.FC = () => {
                     <div className="p-3 bg-blue-50 rounded-lg">
                       <div className="text-blue-800 font-medium">Patronage Refund (30%)</div>
                       <div className="font-mono font-bold text-sm text-blue-900 mt-1">
-                        ₱{soaData.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        ₱
+                        {soaData.patronageEarned.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
                       </div>
                       <div className="text-[10px] text-blue-600">Borrowing Volume</div>
                     </div>
@@ -817,11 +1015,15 @@ export const DistributionPage: React.FC = () => {
                       Total Net Credited Savings
                     </div>
                     <div className="text-[11px] text-slate-300">
-                      Capital (₱{soaData.totalContributions.toLocaleString()}) + Surplus (₱{soaData.totalSurplusEarned.toLocaleString()})
+                      Capital (₱{soaData.totalContributions.toLocaleString()}) + Surplus (₱
+                      {soaData.totalSurplusEarned.toLocaleString()})
                     </div>
                   </div>
                   <div className="text-xl sm:text-2xl font-black font-mono text-emerald-400">
-                    ₱{soaData.netSavingsCredited.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                    ₱
+                    {soaData.netSavingsCredited.toLocaleString("en-US", {
+                      minimumFractionDigits: 2,
+                    })}
                   </div>
                 </div>
 

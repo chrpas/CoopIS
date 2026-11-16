@@ -1262,7 +1262,7 @@ export const SettingsPage: React.FC = () => {
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
-                        <CheckCircle2 className="w-4 h-4" /> Personal KPIs
+                        <CheckCircle2 className="w-4 h-4" /> Summary & Personal KPIs
                       </span>
                     </td>
                   </tr>
@@ -1336,13 +1336,13 @@ export const SettingsPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
-                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
-                        ✕ Restricted
+                      <span className="inline-flex items-center gap-1 text-blue-600 font-semibold">
+                        <UserCheck className="w-3.5 h-3.5" /> Read-Only Ledger
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
-                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
-                        ✕ Restricted
+                      <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
+                        <CheckCircle2 className="w-4 h-4" /> Read-Only Ledger
                       </span>
                     </td>
                   </tr>
@@ -1361,8 +1361,8 @@ export const SettingsPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-3.5 px-4 text-center">
-                      <span className="inline-flex items-center gap-1 text-slate-400 font-semibold">
-                        ✕ Restricted
+                      <span className="inline-flex items-center gap-1 text-sky-600 font-semibold">
+                        <CheckCircle2 className="w-4 h-4" /> Personal Allocation & SOA
                       </span>
                     </td>
                   </tr>

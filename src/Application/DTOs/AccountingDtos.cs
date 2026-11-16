@@ -69,3 +69,12 @@ public record BankReconciliationDto(
     string? Notes,
     DateTime CreatedAt
 );
+
+public record DashboardSummaryDto(
+    int ActiveMembersCount,
+    int TotalMembersCount,
+    decimal TotalLoanPrincipal,
+    int TotalLoansCount,
+    decimal TotalInterestEarned,
+    decimal TotalRepayments
+);

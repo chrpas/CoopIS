@@ -61,7 +61,7 @@ export const AppLayout: React.FC = () => {
 
   const allNavItems = [
     {
-      label: isMember ? "My Dashboard" : "Dashboard",
+      label: "Dashboard",
       path: "/dashboard",
       icon: LayoutDashboard,
       allowedRoles: ["Admin", "Member"] as const,
@@ -88,7 +88,7 @@ export const AppLayout: React.FC = () => {
       label: "Bank Reconciliation",
       path: "/accounting",
       icon: Scale,
-      allowedRoles: ["Admin"] as const,
+      allowedRoles: ["Admin", "User", "Member"] as const,
     },
     {
       label: "Bank Accounts",
@@ -100,7 +100,7 @@ export const AppLayout: React.FC = () => {
       label: "Surplus Distribution",
       path: "/distribution",
       icon: PieChart,
-      allowedRoles: ["Admin"] as const,
+      allowedRoles: ["Admin", "Member"] as const,
     },
   ];
 

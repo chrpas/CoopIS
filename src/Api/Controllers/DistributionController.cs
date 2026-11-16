@@ -1,8 +1,11 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CoopIS.Application.Common;
 using CoopIS.Application.DTOs;
 using CoopIS.Application.Services;
+using CoopIS.Domain.Enums;
 using CoopIS.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoopIS.Api.Controllers;
 
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,Member")]
 [ApiController]
 [Route("api/distribution")]
 public class DistributionController : ControllerBase
@@ -26,8 +29,41 @@ public class DistributionController : ControllerBase
         _context = context;
     }
 
+    private async Task<Guid?> ResolveCallerMemberIdAsync(CancellationToken cancellationToken)
+    {
+        var memberId = User.GetMemberId();
+        if (memberId.HasValue)
+        {
+            return memberId.Value;
+        }
+
+        var currentUsername = User.Identity?.Name;
+        var userAccount = await _context.Users
+            .Include(u => u.Member)
+            .FirstOrDefaultAsync(u => u.Username == currentUsername, cancellationToken);
+
+        if (userAccount?.MemberId != null)
+        {
+            return userAccount.MemberId;
+        }
+
+        var firstMember = await _context.Members
+            .OrderBy(m => m.MemberCode)
+            .FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE, cancellationToken);
+
+        if (firstMember != null && userAccount != null)
+        {
+            userAccount.MemberId = firstMember.Id;
+            await _context.SaveChangesAsync(cancellationToken);
+            return firstMember.Id;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Simulates year-end surplus distribution and member dividend/patronage allocations without writing to DB.
+    /// For Member role, scopes the returned allocations list strictly to the logged-in member.
     /// </summary>
     [HttpGet("preview/{fiscalYear:int}")]
     public async Task<ActionResult<DistributionPreviewDto>> GetPreview(
@@ -35,12 +71,29 @@ public class DistributionController : ControllerBase
         CancellationToken cancellationToken)
     {
         var preview = await _distributionService.GetPreviewAsync(fiscalYear, cancellationToken);
+
+        if (User.IsInRole("Member") && !User.IsInRole("Admin"))
+        {
+            var callerMemberId = await ResolveCallerMemberIdAsync(cancellationToken);
+            if (!callerMemberId.HasValue)
+            {
+                return Forbid();
+            }
+
+            var scopedAllocations = preview.Allocations
+                .Where(a => a.MemberId == callerMemberId.Value)
+                .ToList();
+
+            preview = preview with { Allocations = scopedAllocations };
+        }
+
         return Ok(preview);
     }
 
     /// <summary>
     /// Transactionally commits surplus distribution and member ledgers to DB, and locks fiscal cutoffs.
     /// </summary>
+    [Authorize(Roles = "Admin")]
     [HttpPost("finalize/{fiscalYear:int}")]
     public async Task<ActionResult<DistributionPreviewDto>> FinalizeDistribution(
         int fiscalYear,
@@ -59,6 +112,15 @@ public class DistributionController : ControllerBase
         [FromQuery] int fiscalYear = 2026,
         CancellationToken cancellationToken = default)
     {
+        if (User.IsInRole("Member") && !User.IsInRole("Admin"))
+        {
+            var callerMemberId = await ResolveCallerMemberIdAsync(cancellationToken);
+            if (!callerMemberId.HasValue || callerMemberId.Value != memberId)
+            {
+                return Forbid();
+            }
+        }
+
         var soa = await _distributionService.GetMemberStatementOfAccountAsync(memberId, fiscalYear, cancellationToken);
         return Ok(soa);
     }
@@ -66,6 +128,7 @@ public class DistributionController : ControllerBase
     /// <summary>
     /// Historical list of surplus distribution periods.
     /// </summary>
+    [Authorize(Roles = "Admin")]
     [HttpGet]
     public async Task<IActionResult> GetDistributions(CancellationToken cancellationToken)
     {
