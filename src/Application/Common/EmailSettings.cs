@@ -6,14 +6,15 @@ public class EmailSettings
 {
     public const string SectionName = "EmailSettings";
 
-    public string Provider { get; set; } = "Mailjet";
+    public string Provider { get; set; } = "Brevo";
     public string FromName { get; set; } = "CoopIS Organization";
     public string FromEmail { get; set; } = "coopisorganization@gmail.com";
     public string FrontendBaseUrl { get; set; } = "http://localhost:5173";
-    public string SmtpHost { get; set; } = "in-v3.mailjet.com";
+    public string SmtpHost { get; set; } = "api.brevo.com";
     public int SmtpPort { get; set; } = 587;
-    public string? SmtpUser { get; set; } // Mailjet API Key
-    public string? SmtpPass { get; set; } // Mailjet Secret Key
+    public string? SmtpUser { get; set; } // Mailjet API Key or SMTP Login
+    public string? SmtpPass { get; set; } // Brevo API Key (xkeysib-...) or Mailjet Secret Key
+    public string? BrevoApiKey { get; set; } // Brevo HTTP v3 API Key (xkeysib-...)
     public bool UseSsl { get; set; } = true;
 
     /// <summary>
@@ -43,6 +44,14 @@ public class EmailSettings
         if (!string.IsNullOrWhiteSpace(envFrontendUrl))
         {
             FrontendBaseUrl = envFrontendUrl.Trim();
+        }
+
+        var envBrevoKey = Environment.GetEnvironmentVariable("BREVO_API_KEY")
+            ?? Environment.GetEnvironmentVariable("EmailSettings__BrevoApiKey");
+        if (!string.IsNullOrWhiteSpace(envBrevoKey))
+        {
+            BrevoApiKey = envBrevoKey.Trim();
+            Provider = "Brevo";
         }
 
         var envMailjetKey = Environment.GetEnvironmentVariable("MAILJET_API_KEY")

@@ -60,6 +60,7 @@ public class EmailConfigurationService : IEmailConfigurationService
                     if (stored.SmtpPort > 0) settings.SmtpPort = stored.SmtpPort;
                     if (!string.IsNullOrWhiteSpace(stored.SmtpUser)) settings.SmtpUser = stored.SmtpUser;
                     if (!string.IsNullOrWhiteSpace(stored.SmtpPass)) settings.SmtpPass = stored.SmtpPass;
+                    if (!string.IsNullOrWhiteSpace(stored.BrevoApiKey)) settings.BrevoApiKey = stored.BrevoApiKey;
                     settings.UseSsl = stored.UseSsl;
 
                     // Re-apply environment variables if explicit overrides exist on hosting container
@@ -93,13 +94,14 @@ public class EmailConfigurationService : IEmailConfigurationService
         }
 
         return new EmailConfigDto(
-            Provider: "Mailjet",
+            Provider: "Brevo",
             FromName: settings.FromName,
             FromEmail: settings.FromEmail,
             FrontendBaseUrl: settings.FrontendBaseUrl,
-            MailjetApiKey: settings.SmtpUser,
-            HasMailjetSecretKey: !string.IsNullOrWhiteSpace(settings.SmtpPass),
-            SmtpHost: settings.SmtpHost,
+            MailjetApiKey: null,
+            HasMailjetSecretKey: false,
+            HasBrevoApiKey: !string.IsNullOrWhiteSpace(settings.BrevoApiKey),
+            SmtpHost: "api.brevo.com",
             SmtpPort: settings.SmtpPort,
             UseSsl: settings.UseSsl,
             UpdatedAt: updatedAt
@@ -112,25 +114,15 @@ public class EmailConfigurationService : IEmailConfigurationService
 
         var settingsToStore = new EmailSettings
         {
-            Provider = "Mailjet",
+            Provider = "Brevo",
             FromName = string.IsNullOrWhiteSpace(request.FromName) ? "CoopIS Organization" : request.FromName.Trim(),
             FromEmail = string.IsNullOrWhiteSpace(request.FromEmail) ? "coopisorganization@gmail.com" : request.FromEmail.Trim(),
             FrontendBaseUrl = string.IsNullOrWhiteSpace(request.FrontendBaseUrl) ? "http://localhost:5173" : request.FrontendBaseUrl.Trim(),
-            SmtpHost = "in-v3.mailjet.com",
+            SmtpHost = "api.brevo.com",
             SmtpPort = 587,
-            SmtpUser = string.IsNullOrWhiteSpace(request.MailjetApiKey) ? current.SmtpUser : request.MailjetApiKey.Trim(),
+            BrevoApiKey = string.IsNullOrWhiteSpace(request.BrevoApiKey) ? current.BrevoApiKey : request.BrevoApiKey.Trim(),
             UseSsl = true
         };
-
-        // If client submitted a new Secret Key, update it; otherwise preserve existing
-        if (!string.IsNullOrWhiteSpace(request.MailjetSecretKey))
-        {
-            settingsToStore.SmtpPass = request.MailjetSecretKey.Trim();
-        }
-        else
-        {
-            settingsToStore.SmtpPass = current.SmtpPass;
-        }
 
         var json = JsonSerializer.Serialize(settingsToStore);
 
@@ -151,8 +143,8 @@ public class EmailConfigurationService : IEmailConfigurationService
         }
 
         await _context.SaveChangesAsync(ct);
-        _logger.LogInformation("Admin updated Mailjet email configuration (From: {From}, API Key configured: {HasKey})",
-            settingsToStore.FromEmail, !string.IsNullOrWhiteSpace(settingsToStore.SmtpUser));
+        _logger.LogInformation("Admin updated Brevo email configuration (From: {From}, Brevo Key Configured: {HasBrevo})",
+            settingsToStore.FromEmail, !string.IsNullOrWhiteSpace(settingsToStore.BrevoApiKey));
 
         return await GetConfigDtoAsync(ct);
     }

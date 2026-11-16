@@ -20,6 +20,7 @@ public record EmailConfigDto(
     string FrontendBaseUrl,
     string? MailjetApiKey,
     bool HasMailjetSecretKey,
+    bool HasBrevoApiKey,
     string SmtpHost,
     int SmtpPort,
     bool UseSsl,
@@ -27,9 +28,11 @@ public record EmailConfigDto(
 );
 
 public record UpdateEmailConfigRequest(
+    string? Provider,
     string FromName,
     string FromEmail,
     string FrontendBaseUrl,
+    string? BrevoApiKey,
     string? MailjetApiKey,
     string? MailjetSecretKey
 );

@@ -21,6 +21,7 @@ obj/
 dist/
 /out/
 /.next/
+src/Api/wwwroot/
 
 # Misc
 .DS_Store

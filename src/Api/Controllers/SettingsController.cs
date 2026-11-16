@@ -34,15 +34,15 @@ public class SettingsController : ControllerBase
     public async Task<ActionResult<EmailStatusResponse>> GetEmailStatus(CancellationToken cancellationToken)
     {
         var settings = await _emailConfigService.GetEffectiveSettingsAsync(cancellationToken);
-        var isConfigured = !string.IsNullOrWhiteSpace(settings.SmtpUser) && !string.IsNullOrWhiteSpace(settings.SmtpPass);
+        var isConfigured = !string.IsNullOrWhiteSpace(settings.BrevoApiKey);
 
         return Ok(new EmailStatusResponse(
-            Provider: "Mailjet",
+            Provider: "Brevo",
             FromName: settings.FromName,
             FromEmail: settings.FromEmail,
             FrontendBaseUrl: settings.FrontendBaseUrl,
             IsConfigured: isConfigured,
-            SmtpHost: settings.SmtpHost,
+            SmtpHost: "api.brevo.com",
             SmtpPort: settings.SmtpPort,
             UseSsl: settings.UseSsl
         ));
