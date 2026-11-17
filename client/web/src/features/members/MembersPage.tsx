@@ -14,11 +14,14 @@ import { MemberDeleteDialog } from "./MemberDeleteDialog";
 import { MemberDetailsDrawer } from "./MemberDetailsDrawer";
 import { AssignAccountModal } from "./AssignAccountModal";
 import { RevertAccountModal } from "./RevertAccountModal";
+import { useToast } from "../../components/ui/Toast";
 import {
   Users,
   UserPlus,
   KeyRound,
   RotateCcw,
+  Send,
+  Loader2,
   Search,
   Filter,
   CheckCircle2,
@@ -44,6 +47,7 @@ import {
 export const MembersPage: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === "Admin";
+  const { showToast } = useToast();
 
   const queryClient = useQueryClient();
 
@@ -61,8 +65,30 @@ export const MembersPage: React.FC = () => {
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
   const [memberForAssignAccount, setMemberForAssignAccount] = useState<Member | null>(null);
   const [memberForRevertAccount, setMemberForRevertAccount] = useState<Member | null>(null);
+  const [resendingMemberId, setResendingMemberId] = useState<string | null>(null);
   const [assignSuccessNotice, setAssignSuccessNotice] = useState<string | null>(null);
   const [selectedMemberIdForProfile, setSelectedMemberIdForProfile] = useState<string | null>(null);
+
+  const handleResendCredentials = async (member: Member) => {
+    try {
+      setResendingMemberId(member.id);
+      await memberService.resendCredentials(member.id);
+      showToast(
+        "success",
+        "Email Dispatched",
+        `Portal credentials notification was successfully resent to ${member.email} for @${member.linkedUsername}.`
+      );
+    } catch (err: any) {
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to resend credentials email.";
+      showToast("error", "Email Dispatch Failed", msg);
+    } finally {
+      setResendingMemberId(null);
+    }
+  };
 
   // Fetch paginated member directory
   const { data: pagedData, isLoading } = useQuery({
@@ -317,25 +343,45 @@ export const MembersPage: React.FC = () => {
         cell: ({ row }) => {
           const username = row.original.linkedUsername;
           if (username) {
+            const isResending = resendingMemberId === row.original.id;
             return (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <KeyRound className="w-3 h-3 text-emerald-600" />
                   @{username}
                 </span>
                 {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setMemberForRevertAccount(row.original);
-                    }}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors shadow-2xs cursor-pointer"
-                    title="Revert portal login"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    Revert
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      disabled={isResending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleResendCredentials(row.original);
+                      }}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
+                      title="Resend welcome email with credentials"
+                    >
+                      {isResending ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Send className="w-3 h-3 text-emerald-600" />
+                      )}
+                      Resend
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMemberForRevertAccount(row.original);
+                      }}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors shadow-2xs cursor-pointer"
+                      title="Revert portal login"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Revert
+                    </button>
+                  </>
                 )}
               </div>
             );
@@ -731,6 +777,7 @@ export const MembersPage: React.FC = () => {
           setSelectedMemberIdForProfile(null);
           setMemberForRevertAccount(m as any);
         }}
+        onResendCredentials={(m) => handleResendCredentials(m as any)}
       />
 
       {/* Modal 3: Assign Portal Login Account */}

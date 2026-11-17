@@ -13,4 +13,5 @@ public interface IUserService
     Task<UserAccountDto> CreateUserAsync(CreateUserRequest request, CancellationToken cancellationToken = default);
     Task<UserAccountDto> UpdateUserRoleOrStatusAsync(Guid id, UpdateUserRoleOrStatusRequest request, Guid currentUserId, CancellationToken cancellationToken = default);
     Task DeleteOrDeactivateUserAsync(Guid id, Guid currentUserId, CancellationToken cancellationToken = default);
+    Task ResendMemberCredentialsAsync(Guid memberId, CancellationToken cancellationToken = default);
 }

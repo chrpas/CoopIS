@@ -60,4 +60,9 @@ export const memberService = {
     const res = await api.delete<{ message: string }>(`/members/${memberId}/portal-account`);
     return res.data;
   },
+
+  resendCredentials: async (memberId: string): Promise<{ message: string }> => {
+    const res = await api.post<{ message: string }>(`/members/${memberId}/resend-credentials`);
+    return res.data;
+  },
 };

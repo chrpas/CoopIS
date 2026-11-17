@@ -117,4 +117,19 @@ public class MembersController : ControllerBase
         await _memberService.RemoveMemberPortalLoginAsync(id, cancellationToken);
         return Ok(new { message = "Member portal login reverted successfully." });
     }
+
+    /// <summary>
+    /// Resends the portal account credentials email (with temporary password and reset link) to the member.
+    /// Admin only.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpPost("{id:guid}/resend-credentials")]
+    public async Task<IActionResult> ResendMemberCredentials(
+        Guid id,
+        [FromServices] IUserService userService,
+        CancellationToken cancellationToken)
+    {
+        await userService.ResendMemberCredentialsAsync(id, cancellationToken);
+        return Ok(new { message = "Portal credentials notification email resent successfully." });
+    }
 }
