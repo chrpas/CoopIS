@@ -7,6 +7,7 @@ using CoopIS.Application.DTOs;
 using CoopIS.Application.Services;
 using CoopIS.Domain.Entities;
 using CoopIS.Infrastructure.Data;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -18,16 +19,57 @@ public class EmailConfigurationService : IEmailConfigurationService
     private const string SettingKey = "EmailSettings";
     private readonly AppDbContext _context;
     private readonly IConfiguration _configuration;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<EmailConfigurationService> _logger;
 
     public EmailConfigurationService(
         AppDbContext context,
         IConfiguration configuration,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<EmailConfigurationService> logger)
     {
         _context = context;
         _configuration = configuration;
+        _httpContextAccessor = httpContextAccessor;
         _logger = logger;
+    }
+
+    private string ResolveDynamicRootUrl(string? candidateUrl)
+    {
+        var httpContext = _httpContextAccessor.HttpContext;
+        if (httpContext != null)
+        {
+            var originHeader = httpContext.Request.Headers["Origin"].ToString();
+            if (!string.IsNullOrWhiteSpace(originHeader) && Uri.TryCreate(originHeader, UriKind.Absolute, out var originUri))
+            {
+                return originUri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+            }
+
+            if (httpContext.Request.Host.HasValue)
+            {
+                var host = httpContext.Request.Host.Host;
+                if (!host.Equals("localhost", StringComparison.OrdinalIgnoreCase) && host != "127.0.0.1" && host != "::1")
+                {
+                    var forwardedProto = httpContext.Request.Headers["X-Forwarded-Proto"].ToString();
+                    var scheme = !string.IsNullOrWhiteSpace(forwardedProto) ? forwardedProto : httpContext.Request.Scheme;
+                    return $"{scheme}://{httpContext.Request.Host.Value}".TrimEnd('/');
+                }
+                return "http://localhost:5173";
+            }
+        }
+
+        var railwayDomain = Environment.GetEnvironmentVariable("RAILWAY_PUBLIC_DOMAIN");
+        if (!string.IsNullOrWhiteSpace(railwayDomain))
+        {
+            return $"https://{railwayDomain.Trim().TrimEnd('/')}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(candidateUrl) && Uri.TryCreate(candidateUrl.Trim(), UriKind.Absolute, out var parsedUri))
+        {
+            return parsedUri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        }
+
+        return "http://localhost:5173";
     }
 
     public async Task<EmailSettings> GetEffectiveSettingsAsync(CancellationToken ct = default)
@@ -73,6 +115,9 @@ public class EmailConfigurationService : IEmailConfigurationService
             _logger.LogWarning(ex, "Could not read {SettingKey} from database. Using configuration defaults.", SettingKey);
         }
 
+        // Always resolve the root URL dynamically from the active environment (http://localhost:5173 in local dev, or the live deployed origin)
+        settings.FrontendBaseUrl = ResolveDynamicRootUrl(settings.FrontendBaseUrl);
+
         return settings;
     }
 
@@ -117,7 +162,7 @@ public class EmailConfigurationService : IEmailConfigurationService
             Provider = "Brevo",
             FromName = string.IsNullOrWhiteSpace(request.FromName) ? "CoopIS Organization" : request.FromName.Trim(),
             FromEmail = string.IsNullOrWhiteSpace(request.FromEmail) ? "coopisorganization@gmail.com" : request.FromEmail.Trim(),
-            FrontendBaseUrl = string.IsNullOrWhiteSpace(request.FrontendBaseUrl) ? "http://localhost:5173" : request.FrontendBaseUrl.Trim(),
+            FrontendBaseUrl = ResolveDynamicRootUrl(request.FrontendBaseUrl),
             SmtpHost = "api.brevo.com",
             SmtpPort = 587,
             BrevoApiKey = string.IsNullOrWhiteSpace(request.BrevoApiKey) ? current.BrevoApiKey : request.BrevoApiKey.Trim(),

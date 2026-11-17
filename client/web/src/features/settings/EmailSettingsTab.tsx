@@ -44,9 +44,10 @@ export const EmailSettingsTab: React.FC = () => {
   // Form state
   const [fromName, setFromName] = useState("CoopIS Organization");
   const [fromEmail, setFromEmail] = useState("coopisorganization@gmail.com");
-  const [frontendBaseUrl, setFrontendBaseUrl] = useState("http://localhost:5173");
   const [brevoApiKey, setBrevoApiKey] = useState("");
   const [showBrevoKey, setShowBrevoKey] = useState(false);
+  const activeRootUrl =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:5173";
 
   // Status & Feedback
   const [saveFeedback, setSaveFeedback] = useState<{
@@ -81,7 +82,6 @@ export const EmailSettingsTab: React.FC = () => {
     if (config) {
       setFromName(config.fromName || "CoopIS Organization");
       setFromEmail(config.fromEmail || "coopisorganization@gmail.com");
-      setFrontendBaseUrl(config.frontendBaseUrl || window.location.origin);
       setBrevoApiKey("");
     }
   }, [config]);
@@ -93,7 +93,7 @@ export const EmailSettingsTab: React.FC = () => {
         provider: "Brevo",
         fromName: fromName.trim(),
         fromEmail: fromEmail.trim(),
-        frontendBaseUrl: frontendBaseUrl.trim(),
+        frontendBaseUrl: activeRootUrl,
         brevoApiKey: brevoApiKey.trim() || null,
       };
       const res = await api.put<EmailConfig>("/settings/email-config", payload);
@@ -338,27 +338,22 @@ export const EmailSettingsTab: React.FC = () => {
           </div>
         </div>
 
-        {/* 2. Frontend Base URL */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-            Frontend Base URL (For Password Reset Links)
-          </label>
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-              <Globe className="w-4 h-4" />
+        {/* 2. Auto-Detected Portal Root URL */}
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <Globe className="w-4 h-4 text-emerald-600 shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-slate-800">
+                Active Portal Root URL (Auto-Detected)
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Automatically used for password reset and portal notification links in this environment.
+              </div>
             </div>
-            <input
-              type="text"
-              required
-              value={frontendBaseUrl}
-              onChange={(e) => setFrontendBaseUrl(e.target.value)}
-              placeholder="http://localhost:5173"
-              className="w-full pl-9 pr-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
           </div>
-          <p className="text-[11px] text-slate-400 mt-1">
-            This root URL is prepended to password reset tokens sent to members and operators.
-          </p>
+          <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-mono text-xs font-bold text-emerald-700">
+            {activeRootUrl}
+          </span>
         </div>
 
         {/* 3. Brevo API Credentials */}

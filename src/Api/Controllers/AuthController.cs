@@ -26,6 +26,7 @@ public class AuthController : ControllerBase
     private readonly ITokenService _tokenService;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IEmailService _emailService;
+    private readonly IEmailConfigurationService _emailConfigService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
 
@@ -34,6 +35,7 @@ public class AuthController : ControllerBase
         ITokenService tokenService,
         IPasswordHasher passwordHasher,
         IEmailService emailService,
+        IEmailConfigurationService emailConfigService,
         IConfiguration configuration,
         ILogger<AuthController> logger)
     {
@@ -41,6 +43,7 @@ public class AuthController : ControllerBase
         _tokenService = tokenService;
         _passwordHasher = passwordHasher;
         _emailService = emailService;
+        _emailConfigService = emailConfigService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -113,7 +116,11 @@ public class AuthController : ControllerBase
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await _context.Users
             .Include(u => u.Member)
-            .FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail, cancellationToken);
+            .FirstOrDefaultAsync(
+                u => u.Email.ToLower() == normalizedEmail ||
+                     u.Username.ToLower() == normalizedEmail ||
+                     (u.Member != null && u.Member.Email.ToLower() == normalizedEmail),
+                cancellationToken);
 
         if (user != null && user.IsActive)
         {
@@ -126,11 +133,31 @@ public class AuthController : ControllerBase
             user.PasswordResetTokenExpiresAt = DateTime.UtcNow.AddMinutes(15);
             await _context.SaveChangesAsync(cancellationToken);
 
-            var frontendUrl = Environment.GetEnvironmentVariable("FrontendUrl")
-                ?? Environment.GetEnvironmentVariable("FRONTEND_URL")
-                ?? _configuration["FrontendUrl"]
-                ?? "http://localhost:5173";
+            var emailSettings = await _emailConfigService.GetEffectiveSettingsAsync(cancellationToken);
+            var frontendUrl = emailSettings.FrontendBaseUrl;
 
+            // If FrontendBaseUrl is still set to localhost while accessed from a live domain (e.g. Railway), use the incoming Origin / Host
+            if (string.IsNullOrWhiteSpace(frontendUrl) || frontendUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+            {
+                var originHeader = Request.Headers["Origin"].ToString();
+                if (!string.IsNullOrWhiteSpace(originHeader) && !originHeader.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+                {
+                    frontendUrl = originHeader;
+                }
+                else if (Request.Host.HasValue && !Request.Host.Host.Contains("localhost", StringComparison.OrdinalIgnoreCase) && Request.Host.Host != "127.0.0.1")
+                {
+                    var proto = Request.Headers["X-Forwarded-Proto"].ToString();
+                    var scheme = !string.IsNullOrWhiteSpace(proto) ? proto : Request.Scheme;
+                    frontendUrl = $"{scheme}://{Request.Host.Value}";
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(frontendUrl))
+            {
+                frontendUrl = "http://localhost:5173";
+            }
+
+            var targetEmail = !string.IsNullOrWhiteSpace(user.Email) ? user.Email : (user.Member?.Email ?? normalizedEmail);
             var resetUrl = $"{frontendUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(rawToken)}&email={Uri.EscapeDataString(user.Email)}";
             var recipientName = user.Member != null
                 ? $"{user.Member.FirstName} {user.Member.LastName}".Trim()
@@ -138,15 +165,16 @@ public class AuthController : ControllerBase
 
             try
             {
-                await _emailService.SendPasswordResetEmailAsync(user.Email, resetUrl, recipientName, cancellationToken);
+                await _emailService.SendPasswordResetEmailAsync(targetEmail, resetUrl, recipientName, cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send password reset email to {Email}", user.Email);
+                _logger.LogError(ex, "Failed to send password reset email to {Email}", targetEmail);
+                return BadRequest(new { message = $"Failed to send password reset email: {ex.Message}" });
             }
         }
 
-        // Always return 200 OK with identical message to prevent email enumeration
+        // Return 200 OK
         return Ok(new AuthMessageResponse(genericMessage));
     }
 
@@ -165,7 +193,13 @@ public class AuthController : ControllerBase
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail, cancellationToken);
+        var user = await _context.Users
+            .Include(u => u.Member)
+            .FirstOrDefaultAsync(
+                u => u.Email.ToLower() == normalizedEmail ||
+                     u.Username.ToLower() == normalizedEmail ||
+                     (u.Member != null && u.Member.Email.ToLower() == normalizedEmail),
+                cancellationToken);
 
         if (user == null || !user.IsActive || string.IsNullOrEmpty(user.PasswordResetTokenHash) || !user.PasswordResetTokenExpiresAt.HasValue)
         {

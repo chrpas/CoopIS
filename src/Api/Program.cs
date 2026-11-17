@@ -60,8 +60,9 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IBankAccountService, BankAccountService>();
 builder.Services.AddScoped<ILoanQueueService, LoanQueueService>();
 
-// Email Dispatch Services & Configuration (Mailjet SMTP)
+// Email Dispatch Services & Configuration (Brevo HTTP API)
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection(EmailSettings.SectionName));
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IEmailConfigurationService, EmailConfigurationService>();
 builder.Services.AddScoped<SmtpEmailService>();

@@ -45,6 +45,14 @@ public class EmailSettings
         {
             FrontendBaseUrl = envFrontendUrl.Trim();
         }
+        else if (string.IsNullOrWhiteSpace(FrontendBaseUrl) || FrontendBaseUrl.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            var railwayDomain = Environment.GetEnvironmentVariable("RAILWAY_PUBLIC_DOMAIN");
+            if (!string.IsNullOrWhiteSpace(railwayDomain))
+            {
+                FrontendBaseUrl = $"https://{railwayDomain.Trim().TrimEnd('/')}";
+            }
+        }
 
         var envBrevoKey = Environment.GetEnvironmentVariable("BREVO_API_KEY")
             ?? Environment.GetEnvironmentVariable("EmailSettings__BrevoApiKey");

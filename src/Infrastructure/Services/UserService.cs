@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,15 +23,21 @@ public class UserService : IUserService
 {
     private readonly AppDbContext _context;
     private readonly IPasswordHasher _passwordHasher;
+    private readonly IEmailService _emailService;
+    private readonly IEmailConfigurationService _emailConfigService;
     private readonly ILogger<UserService> _logger;
 
     public UserService(
         AppDbContext context,
         IPasswordHasher passwordHasher,
+        IEmailService emailService,
+        IEmailConfigurationService emailConfigService,
         ILogger<UserService> logger)
     {
         _context = context;
         _passwordHasher = passwordHasher;
+        _emailService = emailService;
+        _emailConfigService = emailConfigService;
         _logger = logger;
     }
 
@@ -132,6 +141,11 @@ public class UserService : IUserService
 
         var passwordHash = _passwordHasher.HashPassword(password);
 
+        // Generate a 24-hour password reset token so the user can immediately change their temporary password via the email link
+        var tokenBytes = RandomNumberGenerator.GetBytes(32);
+        var rawToken = Convert.ToHexString(tokenBytes).ToLowerInvariant();
+        var tokenHash = ComputeSha256Hash(rawToken);
+
         var newUser = new UserAccount
         {
             Id = Guid.NewGuid(),
@@ -141,6 +155,8 @@ public class UserService : IUserService
             Role = request.Role,
             MemberId = request.MemberId,
             IsActive = true,
+            PasswordResetTokenHash = tokenHash,
+            PasswordResetTokenExpiresAt = DateTime.UtcNow.AddHours(24),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -156,7 +172,85 @@ public class UserService : IUserService
         {
             var m = await _context.Members.AsNoTracking().FirstOrDefaultAsync(x => x.Id == newUser.MemberId.Value, cancellationToken);
             memberCode = m?.MemberCode;
-            memberName = m != null ? $"{m.FirstName} {m.LastName}" : null;
+            memberName = m != null ? $"{m.FirstName} {m.LastName}".Trim() : null;
+        }
+
+        // Dispatch Portal Account Created notification email with Name, Username, Temporary Password, and Reset Password Link
+        try
+        {
+            var emailSettings = await _emailConfigService.GetEffectiveSettingsAsync(cancellationToken);
+            var frontendBaseUrl = string.IsNullOrWhiteSpace(emailSettings.FrontendBaseUrl)
+                ? "http://localhost:5173"
+                : emailSettings.FrontendBaseUrl.TrimEnd('/');
+
+            var resetUrl = $"{frontendBaseUrl}/reset-password?token={Uri.EscapeDataString(rawToken)}&email={Uri.EscapeDataString(newUser.Email)}";
+            var loginUrl = $"{frontendBaseUrl}/login";
+            var displayName = !string.IsNullOrWhiteSpace(memberName) ? memberName : newUser.Username;
+
+            var subject = "CoopIS - Your Cooperative Portal Account Credentials";
+            var htmlBody = $@"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+</head>
+<body style='font-family:-apple-system,BlinkMacSystemFont,""Segoe UI"",Roboto,sans-serif;background:#0f172a;padding:24px 12px;margin:0;'>
+  <div style='max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.2);'>
+    <div style='background:#064e3b;padding:26px 28px;color:#ffffff;text-align:center;'>
+      <div style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6ee7b7;'>Portal Account Provisioned</div>
+      <h2 style='margin:6px 0 4px 0;font-size:21px;font-weight:800;'>Welcome to CoopIS Portal</h2>
+      <div style='font-size:13px;color:#d1fae5;'>Cooperative Financial &amp; Member Self-Service System</div>
+    </div>
+
+    <div style='padding:26px 28px;color:#1e293b;font-size:14px;line-height:1.6;'>
+      <p style='margin-top:0;'>Hello <strong>{WebUtility.HtmlEncode(displayName)}</strong>,</p>
+      <p style='color:#475569;font-size:13px;'>Your Cooperative Information System (CoopIS) portal account has been created. Below are your account credentials:</p>
+
+      <table style='width:100%;border-collapse:collapse;margin:18px 0;font-size:13px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;'>
+        <tr style='background:#f8fafc;'>
+          <td style='padding:10px 14px;font-weight:700;color:#475569;width:160px;border-bottom:1px solid #e2e8f0;'>Name</td>
+          <td style='padding:10px 14px;font-weight:700;color:#0f172a;border-bottom:1px solid #e2e8f0;'>{WebUtility.HtmlEncode(displayName)}</td>
+        </tr>
+        <tr>
+          <td style='padding:10px 14px;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0;'>Username</td>
+          <td style='padding:10px 14px;font-family:monospace;font-weight:800;color:#059669;font-size:14px;border-bottom:1px solid #e2e8f0;'>{WebUtility.HtmlEncode(newUser.Username)}</td>
+        </tr>
+        <tr style='background:#f8fafc;'>
+          <td style='padding:10px 14px;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0;'>Temporary Password</td>
+          <td style='padding:10px 14px;font-family:monospace;font-weight:800;color:#0f172a;font-size:14px;border-bottom:1px solid #e2e8f0;'>{WebUtility.HtmlEncode(password)}</td>
+        </tr>
+        <tr>
+          <td style='padding:10px 14px;font-weight:700;color:#475569;'>Portal Sign-In URL</td>
+          <td style='padding:10px 14px;'><a href='{WebUtility.HtmlEncode(loginUrl)}' style='color:#059669;font-weight:600;'>{WebUtility.HtmlEncode(loginUrl)}</a></td>
+        </tr>
+      </table>
+
+      <div style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin:20px 0;'>
+        <div style='font-weight:700;color:#14532d;font-size:13px;margin-bottom:6px;'>Want to change your temporary password right away?</div>
+        <div style='color:#166534;font-size:12px;margin-bottom:14px;'>Click the button below to immediately set a new personal password for your account:</div>
+        <div style='text-align:center;'>
+          <a href='{WebUtility.HtmlEncode(resetUrl)}' target='_blank' style='display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:12px 24px;border-radius:10px;'>
+            Change / Reset Password Now
+          </a>
+        </div>
+        <div style='margin-top:12px;font-size:11px;color:#475569;word-break:break-all;'>
+          <strong>Reset Password Link:</strong> <a href='{WebUtility.HtmlEncode(resetUrl)}' style='color:#059669;'>{WebUtility.HtmlEncode(resetUrl)}</a>
+        </div>
+      </div>
+
+      <p style='font-size:12px;color:#64748b;margin-top:20px;border-top:1px solid #e2e8f0;padding-top:12px;'>
+        This is an automated account notification from CoopIS. Please keep your login credentials secure.
+      </p>
+    </div>
+  </div>
+</body>
+</html>";
+
+            await _emailService.SendEmailAsync(newUser.Email, subject, htmlBody, cancellationToken);
+            _logger.LogInformation("Portal account welcome email dispatched to {Email} for user {Username}.", newUser.Email, newUser.Username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to dispatch portal account welcome email to {Email} for user {Username}.", newUser.Email, newUser.Username);
         }
 
         return new UserAccountDto(
@@ -170,6 +264,13 @@ public class UserService : IUserService
             memberCode,
             memberName
         );
+    }
+
+    private static string ComputeSha256Hash(string input)
+    {
+        using var sha256 = SHA256.Create();
+        var bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     public async Task<UserAccountDto> UpdateUserRoleOrStatusAsync(

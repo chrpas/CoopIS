@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { Loan, LoanPenaltySummary } from "../../types";
+import { useToast } from "../../components/ui/Toast";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import {
   X,
@@ -10,6 +11,7 @@ import {
   CheckCircle,
   ShieldAlert,
   Loader2,
+  Send,
 } from "lucide-react";
 
 interface LoanPenaltiesModalProps {
@@ -25,8 +27,34 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
   onClose,
   onPayCutoff,
 }) => {
+  const { showToast } = useToast();
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  const sendLoanNotificationMutation = useMutation({
+    mutationFn: async () => {
+      if (!loan) throw new Error("No loan selected");
+      const res = await api.post<{ message: string; totalDue: number }>(
+        `/loans/${loan.id}/notify`
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      showToast(
+        "success",
+        "Loan Notification Sent",
+        data.message || `Loan amortization notice sent to ${loan?.memberName}.`
+      );
+    },
+    onError: (err: any) => {
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to send loan notification email.";
+      showToast("error", "Notification Failed", msg);
+    },
+  });
 
   const { data: penaltySummary, isLoading } = useQuery<LoanPenaltySummary>({
     queryKey: ["loan-penalties", loan?.id],
@@ -39,6 +67,41 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
   });
 
   if (!isOpen || !loan) return null;
+
+  const currentYear = new Date().getFullYear();
+  const breakdown = penaltySummary?.penaltiesBreakdown || [];
+  const now = new Date();
+  const isItemPaid = (item: (typeof breakdown)[0]) =>
+    item.status === "PAID" ||
+    Math.round((Number(item.principalPaid) || 0) * 100) >=
+      Math.round((Number(item.scheduledPrincipal) || 0) * 100);
+
+  const hasUnpaidDelayedCutoff = breakdown.some(
+    (item) => !isItemPaid(item) && (item.isOverdue || new Date(item.dueDateWithGrace) < now)
+  );
+  const currentIdx = breakdown.findIndex(
+    (item) => new Date(item.dueDateWithGrace) >= now
+  );
+  const currentCutoffItem = currentIdx >= 0 ? breakdown[currentIdx] : null;
+  const isCurrentCutoffInCurrentYear = Boolean(
+    currentCutoffItem &&
+      new Date(currentCutoffItem.cutoffDate).getFullYear() === currentYear
+  );
+  const isCurrentCutoffUnpaid = Boolean(
+    currentCutoffItem && !isItemPaid(currentCutoffItem)
+  );
+  const immediateUpcomingItem =
+    currentIdx >= 0 && currentIdx + 1 < breakdown.length
+      ? breakdown[currentIdx + 1]
+      : null;
+  const isImmediateUpcomingUnpaid = Boolean(
+    immediateUpcomingItem && !isItemPaid(immediateUpcomingItem)
+  );
+  const canSendLoanNotification =
+    isCurrentCutoffInCurrentYear &&
+    hasUnpaidDelayedCutoff &&
+    isCurrentCutoffUnpaid &&
+    isImmediateUpcomingUnpaid;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -233,7 +296,27 @@ export const LoanPenaltiesModal: React.FC<LoanPenaltiesModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+          {canSendLoanNotification && (
+            <button
+              type="button"
+              onClick={() => sendLoanNotificationMutation.mutate()}
+              disabled={sendLoanNotificationMutation.isPending}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              {sendLoanNotificationMutation.isPending ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  Send Notification
+                </>
+              )}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

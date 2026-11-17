@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import { Loan, AmortizationScheduleItem } from "../../types";
+import { useToast } from "../../components/ui/Toast";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
 import { RecordRepaymentModal } from "./RecordRepaymentModal";
 import {
@@ -15,6 +16,8 @@ import {
   DollarSign,
   Coins,
   RefreshCw,
+  Send,
+  Loader2,
 } from "lucide-react";
 
 interface AmortizationScheduleModalProps {
@@ -31,12 +34,38 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
 }) => {
   const { user } = useAuth();
   const isMember = user?.role === "Member";
+  const { showToast } = useToast();
 
   const [selectedCutoffForPayment, setSelectedCutoffForPayment] =
     useState<AmortizationScheduleItem | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [page, setPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
+
+  const sendLoanNotificationMutation = useMutation({
+    mutationFn: async () => {
+      if (!loan) throw new Error("No loan selected");
+      const res = await api.post<{ message: string; totalDue: number }>(
+        `/loans/${loan.id}/notify`
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      showToast(
+        "success",
+        "Loan Notification Sent",
+        data.message || `Loan amortization notice sent to ${loan?.memberName}.`
+      );
+    },
+    onError: (err: any) => {
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to send loan notification email.";
+      showToast("error", "Notification Failed", msg);
+    },
+  });
 
   // Fetch loan amortization schedule reactively
   const {
@@ -71,6 +100,41 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
     (item.status || "").toUpperCase() === "PAID" ||
     Math.round((Number(item.principalPaid) || 0) * 100) >=
       Math.round((Number(item.scheduledPrincipal) || 0) * 100);
+
+  const currentYear = new Date().getFullYear();
+  const getInstallmentGraceDeadline = (item: AmortizationScheduleItem) => {
+    const d = new Date(item.cutoffDate);
+    d.setDate(d.getDate() + 14);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  };
+  const now = new Date();
+  const hasUnpaidDelayedCutoff = schedule.some(
+    (item) => !isScheduleItemPaid(item) && getInstallmentGraceDeadline(item) < now
+  );
+  const currentIdx = schedule.findIndex(
+    (item) => getInstallmentGraceDeadline(item) >= now
+  );
+  const currentCutoffItem = currentIdx >= 0 ? schedule[currentIdx] : null;
+  const isCurrentCutoffInCurrentYear = Boolean(
+    currentCutoffItem &&
+      new Date(currentCutoffItem.cutoffDate).getFullYear() === currentYear
+  );
+  const isCurrentCutoffUnpaid = Boolean(
+    currentCutoffItem && !isScheduleItemPaid(currentCutoffItem)
+  );
+  const immediateUpcomingItem =
+    currentIdx >= 0 && currentIdx + 1 < schedule.length
+      ? schedule[currentIdx + 1]
+      : null;
+  const isImmediateUpcomingUnpaid = Boolean(
+    immediateUpcomingItem && !isScheduleItemPaid(immediateUpcomingItem)
+  );
+  const canSendLoanNotification =
+    isCurrentCutoffInCurrentYear &&
+    hasUnpaidDelayedCutoff &&
+    isCurrentCutoffUnpaid &&
+    isImmediateUpcomingUnpaid;
 
   const totalPenaltiesPaid = schedule.reduce(
     (sum, item) => sum + (Number(item.latePenaltyPaid) || 0),
@@ -449,21 +513,43 @@ export const AmortizationScheduleModal: React.FC<AmortizationScheduleModalProps>
           </div>
 
           {/* Modal Footer */}
-          <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs">
+          <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 text-xs">
             <div className="text-slate-500 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+              <span className="truncate">
                 Repayments dynamically recalculate remaining balances and
                 reconcile cooperative loan ledgers.
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl transition-colors cursor-pointer"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {!isMember && canSendLoanNotification && (
+                <button
+                  type="button"
+                  onClick={() => sendLoanNotificationMutation.mutate()}
+                  disabled={sendLoanNotificationMutation.isPending}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {sendLoanNotificationMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      Send Notification
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       </div>

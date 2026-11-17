@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using CoopIS.Application.Common;
 using CoopIS.Application.DTOs;
@@ -21,11 +24,16 @@ public class LoansController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IFinancialPolicyService _financialPolicyService;
+    private readonly IEmailService _emailService;
 
-    public LoansController(AppDbContext context, IFinancialPolicyService financialPolicyService)
+    public LoansController(
+        AppDbContext context,
+        IFinancialPolicyService financialPolicyService,
+        IEmailService emailService)
     {
         _context = context;
         _financialPolicyService = financialPolicyService;
+        _emailService = emailService;
     }
 
     private async Task<(decimal TotalPenalties, bool AllScheduleEntriesPaid, LoanStatus EffectiveStatus)> ComputeLoanScheduleMetricsAsync(Loan loan, List<CutoffPeriod> allCutoffs)
@@ -940,5 +948,318 @@ public class LoansController : ControllerBase
 
         await _context.SaveChangesAsync();
         return Ok(new { message = $"Loan {loan.LoanReference} status updated to {loan.Status}." });
+    }
+
+    /// <summary>
+    /// Dispatches a Loan Amortization & Cutoff Notification email to the borrower containing:
+    /// 1. All delayed cutoffs plus late penalty
+    /// 2. Current cutoff
+    /// 3. Total amount due (All Delayed + Penalties + Current Cutoff)
+    /// 4. Immediate upcoming cutoff (FYI only)
+    /// </summary>
+    [Authorize(Roles = "Admin,User")]
+    [HttpPost("{id:guid}/notify")]
+    public async Task<IActionResult> SendLoanNotification(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var loan = await _context.Loans
+            .Include(l => l.Member)
+            .Include(l => l.Repayments)
+                .ThenInclude(r => r.CutoffPeriod)
+            .FirstOrDefaultAsync(l => l.Id == id, cancellationToken);
+
+        if (loan == null)
+        {
+            return NotFound(new { message = "Loan record not found." });
+        }
+
+        if (loan.Member == null || string.IsNullOrWhiteSpace(loan.Member.Email))
+        {
+            return BadRequest(new { message = "Borrower does not have a registered email address." });
+        }
+
+        var repaymentsMap = loan.Repayments
+            .GroupBy(r => r.CutoffId)
+            .ToDictionary(g => g.Key, g => g.Last());
+
+        var scheduledCutoffs = await _context.CutoffPeriods
+            .Where(c => c.CutoffDate >= loan.OriginationDate.Date)
+            .OrderBy(c => c.CutoffDate)
+            .Take(loan.CutoffsCount)
+            .ToListAsync(cancellationToken);
+
+        if (scheduledCutoffs.Count < loan.CutoffsCount)
+        {
+            var scheduledIds = scheduledCutoffs.Select(c => c.Id).ToHashSet();
+            var extraCutoffs = loan.Repayments
+                .Where(r => !scheduledIds.Contains(r.CutoffId) && r.CutoffPeriod != null)
+                .Select(r => r.CutoffPeriod)
+                .ToList();
+            scheduledCutoffs.AddRange(extraCutoffs);
+            scheduledCutoffs = scheduledCutoffs.OrderBy(c => c.CutoffDate).Take(loan.CutoffsCount).ToList();
+        }
+
+        var loanPolicy = await _financialPolicyService.GetEffectiveLoanPolicyAsync(loan.CreatedAt, cancellationToken);
+        int gracePeriodDays = loanPolicy.GracePeriodDays;
+        decimal penaltyRatePercent = loanPolicy.LatePenaltyRatePercent;
+        decimal penaltyRate = Math.Round(penaltyRatePercent / 100m, 4);
+
+        var now = DateTime.UtcNow;
+
+        var scheduleItems = new List<(
+            int InstallmentNumber,
+            string Label,
+            DateTime CutoffDate,
+            DateTime GraceDeadline,
+            decimal ScheduledPrincipal,
+            decimal PrincipalPaid,
+            decimal UnpaidPrincipal,
+            decimal PenaltyAmount,
+            bool IsPaid,
+            bool IsOverdue,
+            int DaysLate
+        )>();
+
+        int currentIdx = -1;
+
+        for (int i = 0; i < scheduledCutoffs.Count; i++)
+        {
+            var cutoff = scheduledCutoffs[i];
+            int installmentNumber = i + 1;
+            repaymentsMap.TryGetValue(cutoff.Id, out var r);
+
+            decimal scheduledAmount = Math.Round(loan.CutoffPaymentAmount, 2);
+            if (installmentNumber == loan.CutoffsCount)
+            {
+                decimal sumPrevious = Math.Round(loan.CutoffPaymentAmount, 2) * (loan.CutoffsCount - 1);
+                scheduledAmount = Math.Round(loan.PrincipalAmount - sumPrevious, 2);
+            }
+
+            decimal principalPaid = Math.Round(r?.PrincipalPaid ?? 0.00m, 2);
+            decimal latePenaltyPaid = Math.Round(r?.LatePenaltyPaid ?? 0.00m, 2);
+            var dueDateWithGrace = cutoff.CutoffDate.Date.AddDays(gracePeriodDays).AddHours(23).AddMinutes(59).AddSeconds(59);
+
+            bool isPaid = principalPaid >= scheduledAmount;
+            bool isPastGrace = now > dueDateWithGrace;
+            bool isOverdue = !isPaid && isPastGrace;
+
+            decimal unpaidPrincipal = Math.Max(0m, scheduledAmount - principalPaid);
+            decimal accruedPenalty = isOverdue ? Math.Round(unpaidPrincipal * penaltyRate, 2) : 0.00m;
+            decimal unpaidPenalty = isOverdue ? Math.Max(0m, accruedPenalty - latePenaltyPaid) : 0.00m;
+            int daysLate = isOverdue ? Math.Max(1, (int)(now.Date - cutoff.CutoffDate.Date).TotalDays) : 0;
+
+            scheduleItems.Add((
+                installmentNumber,
+                cutoff.Label,
+                cutoff.CutoffDate,
+                dueDateWithGrace,
+                scheduledAmount,
+                principalPaid,
+                unpaidPrincipal,
+                unpaidPenalty,
+                isPaid,
+                isOverdue,
+                daysLate
+            ));
+
+            if (!isPastGrace && currentIdx == -1)
+            {
+                currentIdx = i;
+            }
+        }
+
+        if (currentIdx == -1 && scheduleItems.Count > 0)
+        {
+            currentIdx = scheduleItems.Count - 1;
+        }
+
+        var delayedItems = scheduleItems.Where(s => s.IsOverdue).ToList();
+        var currentItem = currentIdx >= 0 && currentIdx < scheduleItems.Count ? scheduleItems[currentIdx] : default;
+        bool hasCurrent = currentIdx >= 0 && currentIdx < scheduleItems.Count && !currentItem.IsOverdue;
+        decimal currentCutoffDue = hasCurrent && !currentItem.IsPaid ? currentItem.UnpaidPrincipal : 0.00m;
+
+        bool hasUpcoming = currentIdx >= 0 && (currentIdx + 1) < scheduleItems.Count;
+        var upcomingItem = hasUpcoming ? scheduleItems[currentIdx + 1] : default;
+
+        decimal totalDelayedPrincipal = delayedItems.Sum(d => d.UnpaidPrincipal);
+        decimal totalDelayedPenalty = delayedItems.Sum(d => d.PenaltyAmount);
+        decimal totalDelayedWithPenalty = totalDelayedPrincipal + totalDelayedPenalty;
+        decimal grandTotalDue = totalDelayedWithPenalty + currentCutoffDue;
+
+        var delayedRowsHtml = new StringBuilder();
+        if (delayedItems.Count == 0)
+        {
+            delayedRowsHtml.AppendLine("<tr><td colspan='5' style='padding:12px;text-align:center;color:#059669;font-weight:600;background:#ecfdf5;'>No delayed or overdue loan installments.</td></tr>");
+        }
+        else
+        {
+            foreach (var d in delayedItems)
+            {
+                decimal lineTotal = d.UnpaidPrincipal + d.PenaltyAmount;
+                delayedRowsHtml.AppendLine($@"
+                <tr>
+                  <td style='padding:8px 10px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-weight:700;color:#0f172a;'>#{d.InstallmentNumber} ({WebUtility.HtmlEncode(d.Label)})</td>
+                  <td style='padding:8px 10px;border-bottom:1px solid #f1f5f9;color:#475569;'>{d.CutoffDate:MMM dd, yyyy} <span style='color:#dc2626;font-size:11px;font-weight:700;'>({d.DaysLate}d late)</span></td>
+                  <td style='padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:right;font-family:monospace;color:#0f172a;'>₱{d.UnpaidPrincipal:N2}</td>
+                  <td style='padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:right;font-family:monospace;color:#dc2626;font-weight:700;'>+₱{d.PenaltyAmount:N2}</td>
+                  <td style='padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:right;font-family:monospace;font-weight:800;color:#991b1b;'>₱{lineTotal:N2}</td>
+                </tr>");
+            }
+            delayedRowsHtml.AppendLine($@"
+            <tr style='background:#fef2f2;font-weight:700;'>
+              <td colspan='2' style='padding:10px;color:#991b1b;'>Subtotal — Delayed Cutoffs ({delayedItems.Count})</td>
+              <td style='padding:10px;text-align:right;font-family:monospace;color:#0f172a;'>₱{totalDelayedPrincipal:N2}</td>
+              <td style='padding:10px;text-align:right;font-family:monospace;color:#dc2626;'>+₱{totalDelayedPenalty:N2}</td>
+              <td style='padding:10px;text-align:right;font-family:monospace;color:#991b1b;'>₱{totalDelayedWithPenalty:N2}</td>
+            </tr>");
+        }
+
+        string currentCutoffHtml = !hasCurrent
+            ? "<p style='color:#64748b;font-size:13px;margin:0;padding:10px;'>No active current cutoff installment (all scheduled cutoffs have elapsed).</p>"
+            : $@"
+            <table style='width:100%;border-collapse:collapse;font-size:13px;'>
+              <tr>
+                <td style='padding:8px 10px;color:#64748b;font-weight:600;'>Installment &amp; Cutoff:</td>
+                <td style='padding:8px 10px;font-family:monospace;font-weight:700;color:#0f172a;'>Installment #{currentItem.InstallmentNumber} — {WebUtility.HtmlEncode(currentItem.Label)} ({currentItem.CutoffDate:MMM dd, yyyy})</td>
+              </tr>
+              <tr>
+                <td style='padding:8px 10px;color:#64748b;font-weight:600;'>Grace Deadline ({gracePeriodDays}d):</td>
+                <td style='padding:8px 10px;color:#0f172a;'>{currentItem.GraceDeadline:MMM dd, yyyy}</td>
+              </tr>
+              <tr>
+                <td style='padding:8px 10px;color:#64748b;font-weight:600;'>Status:</td>
+                <td style='padding:8px 10px;font-weight:700;color:{(currentItem.IsPaid ? "#059669" : "#d97706")};'>{(currentItem.IsPaid ? $"Paid in Full (₱{currentItem.PrincipalPaid:N2})" : "Due / Open for Repayment")}</td>
+              </tr>
+              <tr style='background:#f8fafc;'>
+                <td style='padding:10px;font-weight:700;color:#0f172a;'>Current Cutoff Amount Due:</td>
+                <td style='padding:10px;font-family:monospace;font-weight:800;font-size:15px;color:#0f172a;'>₱{currentCutoffDue:N2}</td>
+              </tr>
+            </table>";
+
+        string upcomingCutoffHtml = !hasUpcoming
+            ? "<p style='color:#64748b;font-size:13px;margin:0;'>No further upcoming installment scheduled for this loan.</p>"
+            : $@"
+            <table style='width:100%;border-collapse:collapse;font-size:13px;'>
+              <tr>
+                <td style='padding:6px 10px;color:#0369a1;font-weight:600;'>Next Installment (FYI):</td>
+                <td style='padding:6px 10px;font-family:monospace;font-weight:700;color:#0c4a6e;'>Installment #{upcomingItem.InstallmentNumber} — {WebUtility.HtmlEncode(upcomingItem.Label)} ({upcomingItem.CutoffDate:MMM dd, yyyy})</td>
+              </tr>
+              <tr>
+                <td style='padding:6px 10px;color:#0369a1;font-weight:600;'>Scheduled Amortization (FYI):</td>
+                <td style='padding:6px 10px;font-family:monospace;font-weight:700;color:#0c4a6e;'>₱{upcomingItem.ScheduledPrincipal:N2} <span style='font-size:11px;font-weight:500;color:#0284c7;'>(Not included in Total Due above)</span></td>
+              </tr>
+            </table>";
+
+        var originHeader = Request.Headers["Origin"].ToString();
+        string portalRootUrl = "http://localhost:5173";
+        if (!string.IsNullOrWhiteSpace(originHeader) && Uri.TryCreate(originHeader, UriKind.Absolute, out var originUri))
+        {
+            portalRootUrl = originUri.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+        }
+        else if (Request.Host.HasValue && !Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) && Request.Host.Host != "127.0.0.1")
+        {
+            var proto = Request.Headers["X-Forwarded-Proto"].ToString();
+            var scheme = !string.IsNullOrWhiteSpace(proto) ? proto : Request.Scheme;
+            portalRootUrl = $"{scheme}://{Request.Host.Value}".TrimEnd('/');
+        }
+
+        var fullName = $"{loan.Member.FirstName} {loan.Member.LastName}";
+        var subject = $"CoopIS - Loan Amortization & Cutoff Notice ({loan.LoanReference})";
+
+        var htmlBody = $@"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+</head>
+<body style='font-family:-apple-system,BlinkMacSystemFont,""Segoe UI"",Roboto,sans-serif;background:#0f172a;padding:24px 12px;margin:0;'>
+  <div style='max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 10px 25px rgba(0,0,0,0.2);'>
+    <div style='background:#064e3b;padding:24px 28px;color:#ffffff;'>
+      <div style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6ee7b7;'>Loan Amortization Notice</div>
+      <h2 style='margin:6px 0 4px 0;font-size:20px;font-weight:800;'>Loan Reference: {WebUtility.HtmlEncode(loan.LoanReference)}</h2>
+      <div style='font-size:13px;color:#d1fae5;'>Borrower: <strong>{WebUtility.HtmlEncode(fullName)}</strong> ({WebUtility.HtmlEncode(loan.Member.MemberCode)}) • Principal: ₱{loan.PrincipalAmount:N2}</div>
+    </div>
+
+    <div style='padding:24px 28px;color:#1e293b;font-size:14px;line-height:1.5;'>
+      <p style='margin-top:0;'>Hello <strong>{WebUtility.HtmlEncode(fullName)}</strong>,</p>
+      <p style='color:#475569;font-size:13px;'>Below is your cooperative loan amortization notice for <strong>{WebUtility.HtmlEncode(loan.LoanReference)}</strong> covering any delayed cutoffs (with the {penaltyRatePercent:0.#}% late penalty after the {gracePeriodDays}-day grace period), your current cutoff installment, and your immediate upcoming cutoff for your reference.</p>
+
+      <!-- 1. Delayed Cutoffs -->
+      <h3 style='font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:#991b1b;margin:20px 0 8px 0;border-bottom:2px solid #fecaca;padding-bottom:6px;'>
+        1. Delayed Cutoffs + Late Penalty ({penaltyRatePercent:0.#}%)
+      </h3>
+      <table style='width:100%;border-collapse:collapse;font-size:12px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;'>
+        <thead>
+          <tr style='background:#f8fafc;color:#475569;text-transform:uppercase;font-size:11px;'>
+            <th style='padding:8px 10px;text-align:left;'>Installment / Cutoff</th>
+            <th style='padding:8px 10px;text-align:left;'>Cutoff Date</th>
+            <th style='padding:8px 10px;text-align:right;'>Principal Due</th>
+            <th style='padding:8px 10px;text-align:right;'>Penalty</th>
+            <th style='padding:8px 10px;text-align:right;'>Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {delayedRowsHtml}
+        </tbody>
+      </table>
+
+      <!-- 2. Current Cutoff -->
+      <h3 style='font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:#065f46;margin:22px 0 8px 0;border-bottom:2px solid #a7f3d0;padding-bottom:6px;'>
+        2. Current Cutoff
+      </h3>
+      <div style='border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;'>
+        {currentCutoffHtml}
+      </div>
+
+      <!-- TOTAL AMOUNT DUE (DELAYED + PENALTY + CURRENT CUTOFF) -->
+      <div style='margin:22px 0;padding:18px 20px;background:#0f172a;color:#ffffff;border-radius:12px;'>
+        <div style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#94a3b8;'>
+          Total Amount Due (All Delayed + Penalties + Current Cutoff)
+        </div>
+        <div style='font-size:26px;font-weight:900;font-family:monospace;color:#34d399;margin-top:4px;'>
+          ₱{grandTotalDue:N2}
+        </div>
+        <div style='font-size:12px;color:#cbd5e1;margin-top:4px;'>
+          Delayed Cutoffs (incl. Penalty): ₱{totalDelayedWithPenalty:N2} &nbsp;+&nbsp; Current Cutoff: ₱{currentCutoffDue:N2}
+        </div>
+      </div>
+
+      <!-- 3. Immediate Upcoming Cutoff (FYI) -->
+      <div style='padding:14px 16px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:12px;'>
+        <div style='font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;color:#0284c7;margin-bottom:6px;'>
+          ℹ️ FYI Only — Immediate Upcoming Cutoff
+        </div>
+        {upcomingCutoffHtml}
+      </div>
+
+      <div style='text-align:center;margin:22px 0 8px 0;'>
+        <a href='{WebUtility.HtmlEncode(portalRootUrl)}' target='_blank' style='display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:12px 24px;border-radius:10px;'>
+          Open CoopIS Portal ({WebUtility.HtmlEncode(portalRootUrl)})
+        </a>
+      </div>
+
+      <p style='font-size:12px;color:#64748b;margin-top:18px;border-top:1px solid #e2e8f0;padding-top:14px;'>
+        This is an automated cooperative loan notification from CoopIS. Please contact your Cooperative Administrator or Loan Officer if you have recently remitted payment.
+      </p>
+    </div>
+  </div>
+</body>
+</html>";
+
+        try
+        {
+            await _emailService.SendEmailAsync(loan.Member.Email.Trim(), subject, htmlBody, cancellationToken);
+            return Ok(new
+            {
+                success = true,
+                message = $"Loan notification email sent to {fullName} ({loan.Member.Email}).",
+                delayedCount = delayedItems.Count,
+                totalDue = grandTotalDue
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Failed to send loan notification email: {ex.Message}" });
+        }
     }
 }

@@ -30,6 +30,9 @@ import {
   Loader2,
   Coins,
   KeyRound,
+  Send,
+  ChevronDown,
+  Search,
 } from "lucide-react";
 
 interface MemberDetailsDrawerProps {
@@ -55,9 +58,12 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
   const isAdmin = user?.role === "Admin";
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const currentYear = new Date().getFullYear();
   const [contribPage, setContribPage] = useState<number>(1);
   const [contribPageSize, setContribPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
-  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number | null>(null);
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(currentYear);
+  const [isYearDropdownOpen, setIsYearDropdownOpen] = useState<boolean>(false);
+  const [yearSearchTerm, setYearSearchTerm] = useState<string>("");
   const [cutoffFilter, setCutoffFilter] = useState<"all" | "contributed" | "delayed">("all");
 
   const { data: member, isLoading, isError, error } = useQuery<MemberDetail>({
@@ -95,15 +101,24 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
   const penaltyRate = latePenaltyRatePercent / 100;
 
   const availableFiscalYears = useMemo(() => {
-    const years = Array.from(new Set(cutoffs.map((c) => c.fiscalYear)));
-    return years.sort((a, b) => b - a);
-  }, [cutoffs]);
+    const yearSet = new Set<number>([currentYear, ...cutoffs.map((c) => c.fiscalYear)]);
+    return Array.from(yearSet).sort((a, b) => b - a);
+  }, [cutoffs, currentYear]);
 
+  const filteredFiscalYears = useMemo(() => {
+    if (!yearSearchTerm.trim()) return availableFiscalYears;
+    const term = yearSearchTerm.trim().toLowerCase().replace(/^fy\s*/i, "");
+    return availableFiscalYears.filter((yr) => String(yr).includes(term));
+  }, [availableFiscalYears, yearSearchTerm]);
+
+  // Default to current year whenever the drawer opens for a member
   useEffect(() => {
-    if (availableFiscalYears.length > 0 && selectedFiscalYear === null) {
-      setSelectedFiscalYear(availableFiscalYears[0]);
+    if (isOpen) {
+      setSelectedFiscalYear(currentYear);
+      setIsYearDropdownOpen(false);
+      setYearSearchTerm("");
     }
-  }, [availableFiscalYears, selectedFiscalYear]);
+  }, [isOpen, memberId, currentYear]);
 
   const statusToggleMutation = useMutation({
     mutationFn: async ({ targetStatus }: { targetStatus: MemberStatus }) => {
@@ -127,6 +142,32 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
         err.response?.data?.message ||
         "Failed to update member status.";
       showToast("error", "Status Update Failed", msg);
+    },
+  });
+
+  const sendNotificationMutation = useMutation({
+    mutationFn: async () => {
+      if (!memberId) throw new Error("No member ID");
+      const yrParam = selectedFiscalYear ? `?fiscalYear=${selectedFiscalYear}` : "";
+      const res = await api.post<{ message: string; totalDue: number }>(
+        `/contributions/member/${memberId}/notify${yrParam}`
+      );
+      return res.data;
+    },
+    onSuccess: (data) => {
+      showToast(
+        "success",
+        "Contribution Notification Sent",
+        data.message || `Email notification dispatched to ${member?.email}.`
+      );
+    },
+    onError: (err: any) => {
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to send contribution notification email.";
+      showToast("error", "Notification Failed", msg);
     },
   });
 
@@ -296,6 +337,45 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
     }
     return cutoffScheduleRows;
   }, [cutoffScheduleRows, cutoffFilter]);
+
+  // Send Notification visibility rules:
+  // 1. Selected Fiscal Year must be the current year
+  // 2. Member has at least one Delayed cutoff unpaid
+  // 3. Current cutoff is unpaid
+  // 4. Immediate upcoming cutoff is unpaid
+  const canSendContributionNotification = useMemo(() => {
+    if (selectedFiscalYear !== currentYear) return false;
+    if (cutoffScheduleRows.length === 0) return false;
+
+    const now = new Date();
+    const hasUnpaidDelayedCutoff = cutoffScheduleRows.some(
+      (r) => new Date(r.graceDeadlineIso) < now && !r.hasContributed
+    );
+
+    const currentIdx = cutoffScheduleRows.findIndex(
+      (r) => new Date(r.graceDeadlineIso) >= now
+    );
+    if (currentIdx < 0) return false;
+
+    const currentCutoffRow = cutoffScheduleRows[currentIdx];
+    const isCurrentCutoffUnpaid = Boolean(
+      currentCutoffRow && !currentCutoffRow.hasContributed
+    );
+
+    const immediateUpcomingRow =
+      currentIdx + 1 < cutoffScheduleRows.length
+        ? cutoffScheduleRows[currentIdx + 1]
+        : null;
+    const isImmediateUpcomingUnpaid = Boolean(
+      immediateUpcomingRow && !immediateUpcomingRow.hasContributed
+    );
+
+    return (
+      hasUnpaidDelayedCutoff &&
+      isCurrentCutoffUnpaid &&
+      isImmediateUpcomingUnpaid
+    );
+  }, [selectedFiscalYear, currentYear, cutoffScheduleRows]);
 
   if (!isOpen) return null;
 
@@ -504,21 +584,70 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
                           <span className="w-2 h-2 rounded-full bg-slate-300" />
                           Upcoming
                         </span>
-                        {availableFiscalYears.length > 1 && (
-                          <select
-                            value={selectedFiscalYear ?? ""}
-                            onChange={(e) => {
-                              setSelectedFiscalYear(Number(e.target.value));
-                              setContribPage(1);
-                            }}
-                            className="ml-1 px-2 py-0.5 rounded bg-white border border-slate-200 text-xs font-bold text-slate-700"
-                          >
-                            {availableFiscalYears.map((yr) => (
-                              <option key={yr} value={yr}>
-                                FY {yr}
-                              </option>
-                            ))}
-                          </select>
+                        {availableFiscalYears.length >= 1 && (
+                          <div className="relative ml-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsYearDropdownOpen((prev) => !prev)}
+                              className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-emerald-300 text-xs font-bold text-slate-700 flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                            >
+                              <span>FY {selectedFiscalYear}</span>
+                              {selectedFiscalYear === currentYear && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-100 text-emerald-700 font-bold">
+                                  Current
+                                </span>
+                              )}
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                            </button>
+
+                            {isYearDropdownOpen && (
+                              <div className="absolute right-0 mt-1.5 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-1.5">
+                                <div className="relative mb-1.5">
+                                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                  <input
+                                    type="text"
+                                    value={yearSearchTerm}
+                                    onChange={(e) => setYearSearchTerm(e.target.value)}
+                                    placeholder="Search year..."
+                                    autoFocus
+                                    className="w-full pl-7 pr-2 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 font-medium text-slate-800"
+                                  />
+                                </div>
+                                <div className="max-h-44 overflow-y-auto divide-y divide-slate-50">
+                                  {filteredFiscalYears.length === 0 ? (
+                                    <div className="py-2 px-2.5 text-[11px] text-slate-400 text-center">
+                                      No matching year
+                                    </div>
+                                  ) : (
+                                    filteredFiscalYears.map((yr) => (
+                                      <button
+                                        key={yr}
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedFiscalYear(yr);
+                                          setContribPage(1);
+                                          setIsYearDropdownOpen(false);
+                                          setYearSearchTerm("");
+                                        }}
+                                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                                          selectedFiscalYear === yr
+                                            ? "bg-emerald-50 text-emerald-800"
+                                            : "text-slate-700 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <span>FY {yr}</span>
+                                        {yr === currentYear && (
+                                          <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700">
+                                            Current
+                                          </span>
+                                        )}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -906,16 +1035,41 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
           </div>
 
           {/* Drawer Footer */}
-          <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-            <div className="text-xs text-slate-500">
+          <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
+            <div className="text-xs text-slate-500 truncate">
               Cooperative Member ID: <span className="font-mono">{member?.id}</span>
             </div>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors"
-            >
-              Close
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {mode === "contributions" &&
+                user?.role !== "Member" &&
+                member &&
+                canSendContributionNotification && (
+                  <button
+                    type="button"
+                    onClick={() => sendNotificationMutation.mutate()}
+                    disabled={sendNotificationMutation.isPending}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {sendNotificationMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        Send Notification
+                      </>
+                    )}
+                  </button>
+                )}
+              <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       </div>

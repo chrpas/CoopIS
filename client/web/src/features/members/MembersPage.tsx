@@ -709,7 +709,7 @@ export const MembersPage: React.FC = () => {
         onClose={() => setMemberForAssignAccount(null)}
         onSuccess={(username) => {
           setAssignSuccessNotice(
-            `Portal account @${username} was successfully assigned to ${memberForAssignAccount?.firstName} ${memberForAssignAccount?.lastName} with Members role.`
+            `Portal account @${username} was created for ${memberForAssignAccount?.firstName} ${memberForAssignAccount?.lastName} and a notification email (with Username, Temporary Password, and Reset Password link) has been sent.`
           );
           queryClient.invalidateQueries({ queryKey: ["members"] });
           queryClient.invalidateQueries({ queryKey: ["member-detail"] });
