@@ -13,10 +13,12 @@ import { MemberModalForm } from "./MemberModalForm";
 import { MemberDeleteDialog } from "./MemberDeleteDialog";
 import { MemberDetailsDrawer } from "./MemberDetailsDrawer";
 import { AssignAccountModal } from "./AssignAccountModal";
+import { RevertAccountModal } from "./RevertAccountModal";
 import {
   Users,
   UserPlus,
   KeyRound,
+  RotateCcw,
   Search,
   Filter,
   CheckCircle2,
@@ -58,6 +60,7 @@ export const MembersPage: React.FC = () => {
   const [memberToEdit, setMemberToEdit] = useState<Member | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<Member | null>(null);
   const [memberForAssignAccount, setMemberForAssignAccount] = useState<Member | null>(null);
+  const [memberForRevertAccount, setMemberForRevertAccount] = useState<Member | null>(null);
   const [assignSuccessNotice, setAssignSuccessNotice] = useState<string | null>(null);
   const [selectedMemberIdForProfile, setSelectedMemberIdForProfile] = useState<string | null>(null);
 
@@ -315,10 +318,26 @@ export const MembersPage: React.FC = () => {
           const username = row.original.linkedUsername;
           if (username) {
             return (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <KeyRound className="w-3 h-3 text-emerald-600" />
-                @{username}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <KeyRound className="w-3 h-3 text-emerald-600" />
+                  @{username}
+                </span>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMemberForRevertAccount(row.original);
+                    }}
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors shadow-2xs cursor-pointer"
+                    title="Revert portal login"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Revert
+                  </button>
+                )}
+              </div>
             );
           }
           if (isAdmin) {
@@ -354,13 +373,21 @@ export const MembersPage: React.FC = () => {
             </button>
             {isAdmin && (
               <>
-                {!row.original.linkedUsername && (
+                {!row.original.linkedUsername ? (
                   <button
                     onClick={() => setMemberForAssignAccount(row.original)}
                     className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
                     title="Assign portal login"
                   >
                     <KeyRound className="w-4 h-4 text-emerald-600" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setMemberForRevertAccount(row.original)}
+                    className="p-1.5 text-slate-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                    title="Revert portal login"
+                  >
+                    <RotateCcw className="w-4 h-4 text-rose-600" />
                   </button>
                 )}
                 <button
@@ -700,6 +727,10 @@ export const MembersPage: React.FC = () => {
           setSelectedMemberIdForProfile(null);
           setMemberForAssignAccount(m as any);
         }}
+        onRevertAccount={(m) => {
+          setSelectedMemberIdForProfile(null);
+          setMemberForRevertAccount(m as any);
+        }}
       />
 
       {/* Modal 3: Assign Portal Login Account */}
@@ -713,6 +744,22 @@ export const MembersPage: React.FC = () => {
           );
           queryClient.invalidateQueries({ queryKey: ["members"] });
           queryClient.invalidateQueries({ queryKey: ["member-detail"] });
+          setTimeout(() => setAssignSuccessNotice(null), 6000);
+        }}
+      />
+
+      {/* Modal 4: Revert Portal Login Account */}
+      <RevertAccountModal
+        isOpen={Boolean(memberForRevertAccount)}
+        member={memberForRevertAccount}
+        onClose={() => setMemberForRevertAccount(null)}
+        onSuccess={(m) => {
+          setAssignSuccessNotice(
+            `Portal login @${m.linkedUsername} for ${m.firstName} ${m.lastName} was reverted. You can now edit their email in "Edit member" and re-assign a login account.`
+          );
+          queryClient.invalidateQueries({ queryKey: ["members"] });
+          queryClient.invalidateQueries({ queryKey: ["member-detail"] });
+          queryClient.invalidateQueries({ queryKey: ["users"] });
           setTimeout(() => setAssignSuccessNotice(null), 6000);
         }}
       />

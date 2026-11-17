@@ -13,4 +13,5 @@ public interface IMemberService
     Task<MemberDto> UpdateMemberAsync(Guid id, UpdateMemberRequest request, CancellationToken cancellationToken = default);
     Task<MemberDto> UpdateMemberStatusAsync(Guid id, UpdateMemberStatusRequest request, CancellationToken cancellationToken = default);
     Task DeleteOrSuspendMemberAsync(Guid id, CancellationToken cancellationToken = default);
+    Task RemoveMemberPortalLoginAsync(Guid memberId, CancellationToken cancellationToken = default);
 }

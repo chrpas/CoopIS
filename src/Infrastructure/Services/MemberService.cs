@@ -304,6 +304,17 @@ public class MemberService : IMemberService
         member.Status = request.Status;
         member.UpdatedAt = DateTime.UtcNow;
 
+        // Keep linked portal user account email in sync if one exists
+        var linkedUser = await _context.Users.FirstOrDefaultAsync(u => u.MemberId == id, cancellationToken);
+        if (linkedUser != null && !linkedUser.Email.Equals(emailNormalized, StringComparison.OrdinalIgnoreCase))
+        {
+            var emailInUsers = await _context.Users.AnyAsync(u => u.Id != linkedUser.Id && u.Email.ToLower() == emailNormalized, cancellationToken);
+            if (!emailInUsers)
+            {
+                linkedUser.Email = emailNormalized;
+            }
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
         var totalContributions = await _context.Contributions
@@ -412,6 +423,23 @@ public class MemberService : IMemberService
 
         // 3. Otherwise, if no financial history exists at all, safe to delete record
         _context.Members.Remove(member);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task RemoveMemberPortalLoginAsync(Guid memberId, CancellationToken cancellationToken = default)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.MemberId == memberId, cancellationToken);
+        if (user == null)
+        {
+            throw new NotFoundException($"No portal login account found for member with ID '{memberId}'.");
+        }
+
+        if (user.Username.Equals("admin", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ValidationException("The primary 'admin' account cannot be reverted or removed.");
+        }
+
+        _context.Users.Remove(user);
         await _context.SaveChangesAsync(cancellationToken);
     }
 

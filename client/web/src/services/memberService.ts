@@ -55,4 +55,9 @@ export const memberService = {
     const res = await api.delete<{ message: string }>(`/members/${id}`);
     return res.data;
   },
+
+  removePortalAccount: async (memberId: string): Promise<{ message: string }> => {
+    const res = await api.delete<{ message: string }>(`/members/${memberId}/portal-account`);
+    return res.data;
+  },
 };

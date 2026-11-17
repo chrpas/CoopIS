@@ -30,6 +30,7 @@ import {
   Loader2,
   Coins,
   KeyRound,
+  RotateCcw,
   Send,
   ChevronDown,
   Search,
@@ -43,6 +44,7 @@ interface MemberDetailsDrawerProps {
   onEdit?: (member: MemberDetail) => void;
   onRequestDelete?: (member: MemberDetail) => void;
   onAssignAccount?: (member: MemberDetail) => void;
+  onRevertAccount?: (member: MemberDetail) => void;
 }
 
 export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
@@ -53,6 +55,7 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
   onEdit,
   onRequestDelete,
   onAssignAccount,
+  onRevertAccount,
 }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === "Admin";
@@ -951,10 +954,23 @@ export const MemberDetailsDrawer: React.FC<MemberDetailsDrawerProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-500 uppercase">Self-Service Portal Login</span>
                       {member.linkedUsername ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                          <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
-                          @{member.linkedUsername}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                            @{member.linkedUsername}
+                          </span>
+                          {isAdmin && onRevertAccount && (
+                            <button
+                              type="button"
+                              onClick={() => onRevertAccount(member)}
+                              className="px-2 py-0.5 text-[11px] font-semibold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-md transition-colors flex items-center gap-1 shadow-2xs"
+                              title="Revert portal login"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              Revert
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <div className="flex items-center gap-2">
                           <span className="text-slate-400 italic">No account assigned</span>

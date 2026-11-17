@@ -103,4 +103,18 @@ public class MembersController : ControllerBase
         await _memberService.DeleteOrSuspendMemberAsync(id, cancellationToken);
         return Ok(new { message = "Member record has been processed successfully (suspended or removed)." });
     }
+
+    /// <summary>
+    /// Reverts / removes the portal login account associated with this member.
+    /// Admin only.
+    /// </summary>
+    [Authorize(Roles = "Admin")]
+    [HttpDelete("{id:guid}/portal-account")]
+    public async Task<IActionResult> RemoveMemberPortalLogin(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        await _memberService.RemoveMemberPortalLoginAsync(id, cancellationToken);
+        return Ok(new { message = "Member portal login reverted successfully." });
+    }
 }

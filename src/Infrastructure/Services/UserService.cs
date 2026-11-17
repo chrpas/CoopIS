@@ -170,9 +170,18 @@ public class UserService : IUserService
         string? memberName = null;
         if (newUser.MemberId.HasValue)
         {
-            var m = await _context.Members.AsNoTracking().FirstOrDefaultAsync(x => x.Id == newUser.MemberId.Value, cancellationToken);
-            memberCode = m?.MemberCode;
-            memberName = m != null ? $"{m.FirstName} {m.LastName}".Trim() : null;
+            var m = await _context.Members.FirstOrDefaultAsync(x => x.Id == newUser.MemberId.Value, cancellationToken);
+            if (m != null)
+            {
+                if (!string.Equals(m.Email, newUser.Email, StringComparison.OrdinalIgnoreCase))
+                {
+                    m.Email = newUser.Email;
+                    m.UpdatedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                memberCode = m.MemberCode;
+                memberName = $"{m.FirstName} {m.LastName}".Trim();
+            }
         }
 
         // Dispatch Portal Account Created notification email with Name, Username, Temporary Password, and Reset Password Link
