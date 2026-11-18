@@ -67,6 +67,12 @@ export const AppLayout: React.FC = () => {
       allowedRoles: ["Admin", "Member"] as const,
     },
     {
+      label: "Bank Accounts",
+      path: "/accounting/bank-accounts",
+      icon: Building2,
+      allowedRoles: ["Admin"] as const,
+    },
+    {
       label: "Member Registry",
       path: "/members",
       icon: Users,
@@ -89,12 +95,6 @@ export const AppLayout: React.FC = () => {
       path: "/accounting",
       icon: Scale,
       allowedRoles: ["Admin", "User", "Member"] as const,
-    },
-    {
-      label: "Bank Accounts",
-      path: "/accounting/bank-accounts",
-      icon: Building2,
-      allowedRoles: ["Admin"] as const,
     },
     {
       label: "Surplus Distribution",

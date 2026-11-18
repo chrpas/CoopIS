@@ -1,12 +1,16 @@
 using System;
 using System.ComponentModel.DataAnnotations;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using CoopIS.Application.Common;
 using CoopIS.Application.DTOs;
 using CoopIS.Application.Services;
+using CoopIS.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace CoopIS.Api.Controllers;
@@ -28,6 +32,87 @@ public class SettingsController : ControllerBase
         _emailService = emailService;
         _emailConfigService = emailConfigService;
         _logger = logger;
+    }
+
+    [HttpGet("system-info")]
+    [Authorize(Roles = "Admin,User")]
+    public async Task<ActionResult<SystemInfoDto>> GetSystemInfo(
+        [FromServices] IWebHostEnvironment env,
+        [FromServices] AppDbContext context,
+        [FromServices] IFinancialPolicyService financialPolicyService,
+        CancellationToken cancellationToken)
+    {
+        var policy = await financialPolicyService.GetPolicyOverviewAsync(cancellationToken);
+        var activeFiscalYear = policy?.CurrentActiveFiscalYear ?? DateTime.UtcNow.Year;
+
+        var cutoffCount = await context.CutoffPeriods
+            .CountAsync(c => c.FiscalYear == activeFiscalYear, cancellationToken);
+        if (cutoffCount == 0) cutoffCount = 24;
+
+        var version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
+
+        var gitCommitSha = Environment.GetEnvironmentVariable("RAILWAY_GIT_COMMIT_SHA")
+            ?? Environment.GetEnvironmentVariable("GIT_COMMIT");
+
+        if (string.IsNullOrWhiteSpace(gitCommitSha))
+        {
+            try
+            {
+                var headPath = Path.Combine(AppContext.BaseDirectory, ".git", "refs", "heads", "main");
+                if (!System.IO.File.Exists(headPath))
+                {
+                    headPath = Path.Combine(Directory.GetCurrentDirectory(), ".git", "refs", "heads", "main");
+                }
+                if (System.IO.File.Exists(headPath))
+                {
+                    gitCommitSha = (await System.IO.File.ReadAllTextAsync(headPath, cancellationToken)).Trim();
+                }
+            }
+            catch
+            {
+                // Fallback gracefully if git files not accessible
+            }
+        }
+
+        var shortSha = !string.IsNullOrWhiteSpace(gitCommitSha)
+            ? (gitCommitSha.Length > 7 ? gitCommitSha[..7] : gitCommitSha)
+            : null;
+
+        var isRailway = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RAILWAY_ENVIRONMENT"))
+            || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("RAILWAY_PUBLIC_DOMAIN"));
+
+        var deploymentPlatform = isRailway ? "Railway PaaS" : "Localhost / Self-Hosted";
+
+        var isDbHealthy = false;
+        try
+        {
+            isDbHealthy = await context.Database.CanConnectAsync(cancellationToken);
+        }
+        catch
+        {
+            isDbHealthy = false;
+        }
+
+        var dbStatus = isDbHealthy ? "Connected" : "Disconnected";
+
+        var result = new SystemInfoDto(
+            PlatformName: "CoopIS Enterprise",
+            SoftwareVersion: $"v{version}",
+            GitCommitSha: shortSha,
+            EnvironmentName: env.EnvironmentName,
+            DeploymentPlatform: deploymentPlatform,
+            ActiveFiscalYear: activeFiscalYear,
+            CutoffScheduleCount: cutoffCount,
+            BaseCurrency: "PHP",
+            CurrencySymbol: "₱",
+            Locale: "en-PH",
+            DatabaseEngine: "PostgreSQL 16",
+            DatabaseStatus: dbStatus,
+            IsDatabaseHealthy: isDbHealthy,
+            ServerTimeUtc: DateTime.UtcNow
+        );
+
+        return Ok(result);
     }
 
     [HttpGet("email-status")]

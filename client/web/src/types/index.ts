@@ -1,5 +1,22 @@
 export type UserRole = "Admin" | "User" | "Member";
 
+export interface SystemInfo {
+  platformName: string;
+  softwareVersion: string;
+  gitCommitSha?: string | null;
+  environmentName: string;
+  deploymentPlatform: string;
+  activeFiscalYear: number;
+  cutoffScheduleCount: number;
+  baseCurrency: string;
+  currencySymbol: string;
+  locale: string;
+  databaseEngine: string;
+  databaseStatus: string;
+  isDatabaseHealthy: boolean;
+  serverTimeUtc: string;
+}
+
 export interface User {
   id: string;
   username: string;

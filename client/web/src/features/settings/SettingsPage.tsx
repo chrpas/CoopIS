@@ -27,6 +27,7 @@ import {
   UserRole,
   CreateUserPayload,
   FinancialPolicyResponse,
+  SystemInfo,
 } from "../../types";
 import { api } from "../../services/api";
 import { userService } from "../../services/userService";
@@ -81,6 +82,15 @@ export const SettingsPage: React.FC = () => {
     queryKey: ["financial-policy"],
     queryFn: async () => {
       const res = await api.get<FinancialPolicyResponse>("/settings/financial-policy");
+      return res.data;
+    },
+  });
+
+  // Dynamic System & Application Info
+  const { data: systemInfo } = useQuery<SystemInfo>({
+    queryKey: ["system-info"],
+    queryFn: async () => {
+      const res = await api.get<SystemInfo>("/settings/system-info");
       return res.data;
     },
   });
@@ -833,30 +843,127 @@ export const SettingsPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Cooperative Profile Card */}
             <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-              <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
-                <div className="w-10 h-10 flex items-center justify-center shrink-0">
-                  <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 flex items-center justify-center shrink-0">
+                    <img src="/logo.png" alt="CoopIS logo" className="w-full h-full object-contain" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Cooperative Identity</h3>
+                    <p className="text-xs text-slate-500">Official registry, environment & system specs</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Cooperative Identity</h3>
-                  <p className="text-xs text-slate-500">Official registry & fiscal governance</p>
-                </div>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  Live System
+                </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-xs">
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Platform Name</span>
-                  <span className="text-slate-800 font-bold text-sm">CoopIS Enterprise</span>
-                </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Fiscal Year</span>
-                  <span className="text-slate-800 font-bold text-sm">
-                    FY-{financialPolicy?.currentActiveFiscalYear || 2026} (Active)
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                {/* 1. Platform Name */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                    Platform Name
+                  </span>
+                  <span className="text-slate-900 font-bold text-sm block">
+                    {systemInfo?.platformName || "CoopIS Enterprise"}
                   </span>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl">
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Cutoff Schedule</span>
-                  <span className="text-slate-800 font-bold text-sm">24 Semi-Monthly Cutoffs</span>
+
+                {/* 2. Software Version */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                    Software Version
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-slate-900 font-bold text-sm">
+                      {systemInfo?.softwareVersion || "v1.0.0"}
+                    </span>
+                    {systemInfo?.gitCommitSha && (
+                      <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200/80 text-slate-700 border border-slate-300">
+                        #{systemInfo.gitCommitSha}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Active Fiscal Year */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                    Fiscal Year
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-900 font-bold text-sm">
+                      FY-{systemInfo?.activeFiscalYear || financialPolicy?.currentActiveFiscalYear || 2026}
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                      Active
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Cutoff Schedule */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                    Cutoff Schedule
+                  </span>
+                  <span className="text-slate-900 font-bold text-sm block">
+                    {systemInfo?.cutoffScheduleCount || 24} Semi-Monthly
+                  </span>
+                </div>
+
+                {/* 5. Base Currency & Locale */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                    Base Currency & Locale
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-900 font-bold text-sm">
+                      {systemInfo?.baseCurrency || "PHP"} ({systemInfo?.currencySymbol || "₱"})
+                    </span>
+                    <span className="font-mono text-[10px] text-slate-500 font-semibold">
+                      · {systemInfo?.locale || "en-PH"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 6. System Environment */}
+                <div className="p-3 bg-slate-50/80 rounded-xl border border-slate-100">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                    System Environment
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                      {systemInfo?.environmentName || "Production"}
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      ({systemInfo?.deploymentPlatform || "Railway PaaS"})
+                    </span>
+                  </div>
+                </div>
+
+                {/* 7. Database Engine & Health (Spans 2 columns) */}
+                <div className="col-span-2 p-3 bg-slate-50/80 rounded-xl border border-slate-100 flex items-center justify-between">
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">
+                      Database & Health
+                    </span>
+                    <span className="text-slate-900 font-bold text-sm">
+                      {systemInfo?.databaseEngine || "PostgreSQL 16"}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        systemInfo?.isDatabaseHealthy !== false
+                          ? "bg-emerald-500 animate-pulse"
+                          : "bg-rose-500"
+                      }`}
+                    />
+                    <span className="font-bold text-[11px]">
+                      {systemInfo?.databaseStatus || "Connected"}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
