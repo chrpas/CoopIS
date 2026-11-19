@@ -100,7 +100,7 @@ export const AppLayout: React.FC = () => {
       label: "Surplus Distribution",
       path: "/distribution",
       icon: PieChart,
-      allowedRoles: ["Admin", "Member"] as const,
+      allowedRoles: ["Admin", "User", "Member"] as const,
     },
   ];
 

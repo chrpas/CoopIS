@@ -13,7 +13,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CoopIS.Api.Controllers;
 
-[Authorize(Roles = "Admin,Member")]
+[Authorize(Roles = "Admin,User,Member")]
 [ApiController]
 [Route("api/distribution")]
 public class DistributionController : ControllerBase
@@ -72,7 +72,7 @@ public class DistributionController : ControllerBase
     {
         var preview = await _distributionService.GetPreviewAsync(fiscalYear, cancellationToken);
 
-        if (User.IsInRole("Member") && !User.IsInRole("Admin"))
+        if (User.IsInRole("Member") && !User.IsInRole("Admin") && !User.IsInRole("User"))
         {
             var callerMemberId = await ResolveCallerMemberIdAsync(cancellationToken);
             if (!callerMemberId.HasValue)
@@ -88,6 +88,21 @@ public class DistributionController : ControllerBase
         }
 
         return Ok(preview);
+    }
+
+    /// <summary>
+    /// Allows Admin or Loan Officer (User role) to configure a member's carryover election prior to finalization.
+    /// </summary>
+    [Authorize(Roles = "Admin,User")]
+    [HttpPut("{fiscalYear:int}/member/{memberId:guid}/carryover")]
+    public async Task<ActionResult<MemberAllocationDto>> UpdateMemberCarryover(
+        int fiscalYear,
+        Guid memberId,
+        [FromBody] UpdateMemberCarryoverRequest request,
+        CancellationToken cancellationToken)
+    {
+        var updated = await _distributionService.UpdateMemberCarryoverAsync(fiscalYear, memberId, request, cancellationToken);
+        return Ok(updated);
     }
 
     /// <summary>
@@ -112,7 +127,7 @@ public class DistributionController : ControllerBase
         [FromQuery] int fiscalYear = 2026,
         CancellationToken cancellationToken = default)
     {
-        if (User.IsInRole("Member") && !User.IsInRole("Admin"))
+        if (User.IsInRole("Member") && !User.IsInRole("Admin") && !User.IsInRole("User"))
         {
             var callerMemberId = await ResolveCallerMemberIdAsync(cancellationToken);
             if (!callerMemberId.HasValue || callerMemberId.Value != memberId)

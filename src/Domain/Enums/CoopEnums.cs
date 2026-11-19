@@ -20,7 +20,15 @@ public enum PaymentChannel
 {
     PAYROLL_DEDUCTION,
     CASH,
-    BANK_TRANSFER
+    BANK_TRANSFER,
+    CarryoverReinvestment
+}
+
+public enum CarryoverMode
+{
+    None,
+    SpecificBuckets,
+    CustomAmount
 }
 
 public enum UserRole

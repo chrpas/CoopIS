@@ -93,7 +93,8 @@ export interface UpdateRemoteAccessSettingsRequest {
 
 export type MemberStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 export type LoanStatus = "PENDING_APPROVAL" | "APPROVED" | "ACTIVE" | "PAID" | "DEFAULTED";
-export type PaymentChannel = "PAYROLL_DEDUCTION" | "CASH" | "BANK_TRANSFER";
+export type PaymentChannel = "PAYROLL_DEDUCTION" | "CASH" | "BANK_TRANSFER" | "CarryoverReinvestment";
+export type CarryoverMode = "None" | "SpecificBuckets" | "CustomAmount";
 
 export interface PagedResult<T> {
   items: T[];
@@ -225,6 +226,7 @@ export interface CutoffPeriod {
   cutoffDate: string;
   label: string;
   fiscalYear: number;
+  isOpening?: boolean;
   isClosed: boolean;
 }
 
@@ -482,7 +484,21 @@ export interface MemberSurplusLedger {
   loanRatio: number;
   patronageEarned: number;
   netSavingsCredited: number;
+  carryoverMode?: CarryoverMode;
+  carryoverCapital?: boolean;
+  carryoverDividend?: boolean;
+  carryoverPatronage?: boolean;
+  carriedOverAmount?: number;
+  netCashPayout?: number;
   member?: Member;
+}
+
+export interface UpdateMemberCarryoverRequest {
+  carryoverMode: CarryoverMode;
+  carryoverCapital: boolean;
+  carryoverDividend: boolean;
+  carryoverPatronage: boolean;
+  customCarryoverAmount?: number | null;
 }
 
 export interface MemberAllocation {
@@ -498,6 +514,12 @@ export interface MemberAllocation {
   patronageEarned: number;
   totalSurplusEarned: number;
   netSavingsCredited: number;
+  carryoverMode: CarryoverMode;
+  carryoverCapital: boolean;
+  carryoverDividend: boolean;
+  carryoverPatronage: boolean;
+  carriedOverAmount: number;
+  netCashPayout: number;
 }
 
 export interface DistributionPreview {
@@ -520,6 +542,12 @@ export interface DistributionPreview {
   dividendWeightPercent?: number;
   patronageWeightPercent?: number;
   managementWeightPercent?: number;
+  totalGrossEntitlement: number;
+  totalCarriedOverAmount: number;
+  totalNetCashPayout: number;
+  primaryBankBalance: number;
+  hasLiquidityShortfall: boolean;
+  liquidityShortfallAmount: number;
 }
 
 export interface LoanPolicySnapshot {
@@ -585,6 +613,8 @@ export interface MemberStatementOfAccount {
   isFinalized: boolean;
   contributions: MemberSoaContributionItem[];
   loans: MemberSoaLoanItem[];
+  carriedOverAmount?: number;
+  netCashPayout?: number;
 }
 
 export interface BankAccount {

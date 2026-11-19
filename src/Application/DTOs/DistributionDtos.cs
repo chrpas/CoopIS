@@ -1,7 +1,16 @@
 using System;
 using System.Collections.Generic;
+using CoopIS.Domain.Enums;
 
 namespace CoopIS.Application.DTOs;
+
+public record UpdateMemberCarryoverRequest(
+    CarryoverMode CarryoverMode,
+    bool CarryoverCapital = false,
+    bool CarryoverDividend = false,
+    bool CarryoverPatronage = false,
+    decimal? CustomCarryoverAmount = null
+);
 
 public record MemberAllocationDto(
     Guid MemberId,
@@ -15,7 +24,13 @@ public record MemberAllocationDto(
     decimal LoanRatio,
     decimal PatronageEarned,
     decimal TotalSurplusEarned,
-    decimal NetSavingsCredited
+    decimal NetSavingsCredited,
+    CarryoverMode CarryoverMode = CarryoverMode.None,
+    bool CarryoverCapital = false,
+    bool CarryoverDividend = false,
+    bool CarryoverPatronage = false,
+    decimal CarriedOverAmount = 0.00m,
+    decimal NetCashPayout = 0.00m
 );
 
 public record DistributionPreviewDto(
@@ -37,7 +52,13 @@ public record DistributionPreviewDto(
     List<MemberAllocationDto> Allocations,
     decimal DividendWeightPercent = 65m,
     decimal PatronageWeightPercent = 30m,
-    decimal ManagementWeightPercent = 5m
+    decimal ManagementWeightPercent = 5m,
+    decimal TotalGrossEntitlement = 0.00m,
+    decimal TotalCarriedOverAmount = 0.00m,
+    decimal TotalNetCashPayout = 0.00m,
+    decimal PrimaryBankBalance = 0.00m,
+    bool HasLiquidityShortfall = false,
+    decimal LiquidityShortfallAmount = 0.00m
 );
 
 public record MemberSoaContributionItemDto(
@@ -77,5 +98,7 @@ public record MemberStatementOfAccountDto(
     decimal NetSavingsCredited,
     bool IsFinalized,
     List<MemberSoaContributionItemDto> Contributions,
-    List<MemberSoaLoanItemDto> Loans
+    List<MemberSoaLoanItemDto> Loans,
+    decimal CarriedOverAmount = 0.00m,
+    decimal NetCashPayout = 0.00m
 );

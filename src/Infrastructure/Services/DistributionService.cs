@@ -38,6 +38,7 @@ public class DistributionService : IDistributionService
 
         var allCutoffs = await _context.CutoffPeriods
             .AsNoTracking()
+            .Where(c => !c.IsOpening)
             .OrderBy(c => c.CutoffDate)
             .ToListAsync(cancellationToken);
 
@@ -161,10 +162,18 @@ public class DistributionService : IDistributionService
             .OrderBy(m => m.MemberCode)
             .ToListAsync(cancellationToken);
 
-        // Contributions for fiscal cycle (cumulative share capital up to fiscal year)
+        // Contributions for fiscal cycle:
+        // If prior fiscal year was finalized, carried-over capital is already recorded in this year's Opening Balance cutoff,
+        // so we sum strictly this fiscal year to avoid double-counting settled prior capital.
+        bool priorYearFinalized = await _context.SurplusDistributions
+            .AsNoTracking()
+            .AnyAsync(d => d.FiscalYear == fiscalYear - 1 && d.IsFinalized, cancellationToken);
+
         var memberContribs = await _context.Contributions
             .AsNoTracking()
-            .Where(c => c.CutoffPeriod.FiscalYear <= fiscalYear)
+            .Where(c => priorYearFinalized
+                ? c.CutoffPeriod.FiscalYear == fiscalYear
+                : c.CutoffPeriod.FiscalYear <= fiscalYear)
             .GroupBy(c => c.MemberId)
             .Select(g => new { MemberId = g.Key, Total = g.Sum(c => c.Amount) })
             .ToDictionaryAsync(g => g.MemberId, g => g.Total, cancellationToken);
@@ -178,12 +187,10 @@ public class DistributionService : IDistributionService
 
         decimal grandTotalLoanVolume = memberLoans.Values.Sum();
 
-        // 4. Calculate Member Allocations
-        // Member Contribution Ratio = Member Total Contribution / Grand Total Contributions
-        // Member Dividend = Member Contribution Ratio * General Dividend Pool
-        // Member Loan Ratio = Member Total Borrowing Volume / Grand Total Loan Volume
-        // Member Patronage = Member Loan Ratio * Patronage Refund Pool
-        // Net Credited Savings = Member Total Contribution + Member Dividend + Member Patronage
+        // 4. Calculate Member Allocations & Apply Carryover Elections
+        var existingLedgersByMember = existingDist?.MemberLedgers
+            .ToDictionary(l => l.MemberId) ?? new Dictionary<Guid, MemberSurplusLedger>();
+
         var allocations = new List<MemberAllocationDto>(members.Count);
 
         foreach (var member in members)
@@ -196,8 +203,50 @@ public class DistributionService : IDistributionService
             decimal loanRatio = grandTotalLoanVolume > 0 ? Math.Round(loanVol / grandTotalLoanVolume, 8) : 0.00000000m;
             decimal patronage = Math.Round(loanRatio * patronagePool, 2);
 
-            decimal totalSurplus = dividend + patronage;
-            decimal netCredited = contrib + dividend + patronage;
+            decimal totalSurplus = Math.Round(dividend + patronage, 2);
+            decimal netCredited = Math.Round(contrib + dividend + patronage, 2);
+
+            CarryoverMode carryoverMode = CarryoverMode.None;
+            bool carryCap = false;
+            bool carryDiv = false;
+            bool carryPat = false;
+            decimal carriedOver = 0.00m;
+            decimal netCashPayout = netCredited;
+
+            if (existingLedgersByMember.TryGetValue(member.Id, out var savedLedger))
+            {
+                if (existingDist != null && existingDist.IsFinalized)
+                {
+                    contrib = savedLedger.TotalContribution;
+                    contribRatio = savedLedger.ContributionRatio;
+                    dividend = savedLedger.DividendEarned;
+                    loanVol = savedLedger.TotalLoansBorrowed;
+                    loanRatio = savedLedger.LoanRatio;
+                    patronage = savedLedger.PatronageEarned;
+                    totalSurplus = Math.Round(dividend + patronage, 2);
+                    netCredited = savedLedger.NetSavingsCredited;
+                    carryoverMode = savedLedger.CarryoverMode;
+                    carryCap = savedLedger.CarryoverCapital;
+                    carryDiv = savedLedger.CarryoverDividend;
+                    carryPat = savedLedger.CarryoverPatronage;
+                    carriedOver = savedLedger.CarriedOverAmount;
+                    netCashPayout = (savedLedger.CarriedOverAmount == 0m && savedLedger.NetCashPayout == 0m && netCredited > 0m)
+                        ? netCredited
+                        : savedLedger.NetCashPayout;
+                }
+                else
+                {
+                    (carryoverMode, carryCap, carryDiv, carryPat, carriedOver, netCashPayout) = ResolveCarryoverAmounts(
+                        contrib,
+                        dividend,
+                        patronage,
+                        savedLedger.CarryoverMode,
+                        savedLedger.CarryoverCapital,
+                        savedLedger.CarryoverDividend,
+                        savedLedger.CarryoverPatronage,
+                        savedLedger.CarriedOverAmount);
+                }
+            }
 
             allocations.Add(new MemberAllocationDto(
                 member.Id,
@@ -211,12 +260,35 @@ public class DistributionService : IDistributionService
                 loanRatio,
                 patronage,
                 totalSurplus,
-                netCredited
+                netCredited,
+                carryoverMode,
+                carryCap,
+                carryDiv,
+                carryPat,
+                carriedOver,
+                netCashPayout
             ));
         }
 
         int contributingCount = allocations.Count(a => a.TotalContribution > 0);
         int borrowingCount = allocations.Count(a => a.TotalLoansBorrowed > 0);
+
+        decimal totalGrossEntitlement = Math.Round(allocations.Sum(a => a.NetSavingsCredited), 2);
+        decimal totalCarriedOverAmount = Math.Round(allocations.Sum(a => a.CarriedOverAmount), 2);
+        decimal totalNetCashPayout = Math.Round(allocations.Sum(a => a.NetCashPayout), 2);
+
+        // Liquidity Validation Check against primary BankAccount
+        var primaryBank = await _context.BankAccounts
+            .AsNoTracking()
+            .OrderByDescending(b => b.IsPrimary)
+            .ThenBy(b => b.BankName)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        decimal primaryBankBalance = Math.Round(primaryBank?.CurrentBalance ?? 0.00m, 2);
+        bool hasLiquidityShortfall = totalNetCashPayout > primaryBankBalance;
+        decimal liquidityShortfallAmount = hasLiquidityShortfall
+            ? Math.Round(totalNetCashPayout - primaryBankBalance, 2)
+            : 0.00m;
 
         return new DistributionPreviewDto(
             fiscalYear,
@@ -237,8 +309,163 @@ public class DistributionService : IDistributionService
             allocations,
             effectiveWeights.DividendWeightPercent,
             effectiveWeights.PatronageWeightPercent,
-            effectiveWeights.ManagementWeightPercent
+            effectiveWeights.ManagementWeightPercent,
+            totalGrossEntitlement,
+            totalCarriedOverAmount,
+            totalNetCashPayout,
+            primaryBankBalance,
+            hasLiquidityShortfall,
+            liquidityShortfallAmount
         );
+    }
+
+    public async Task<MemberAllocationDto> UpdateMemberCarryoverAsync(
+        int fiscalYear,
+        Guid memberId,
+        UpdateMemberCarryoverRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var existingDist = await _context.SurplusDistributions
+            .Include(d => d.MemberLedgers)
+            .FirstOrDefaultAsync(d => d.FiscalYear == fiscalYear, cancellationToken);
+
+        if (existingDist != null && existingDist.IsFinalized)
+        {
+            throw new ValidationException(
+                $"Fiscal Year {fiscalYear} surplus distribution is already finalized. Carryover elections cannot be modified.");
+        }
+
+        var preview = await GetPreviewAsync(fiscalYear, cancellationToken);
+        var memberAlloc = preview.Allocations.FirstOrDefault(a => a.MemberId == memberId);
+        if (memberAlloc == null)
+        {
+            throw new NotFoundException($"Member with ID '{memberId}' was not found.");
+        }
+
+        decimal grossEntitlement = Math.Round(
+            memberAlloc.TotalContribution + memberAlloc.DividendEarned + memberAlloc.PatronageEarned,
+            2);
+
+        if (request.CarryoverMode == CarryoverMode.CustomAmount)
+        {
+            if (!request.CustomCarryoverAmount.HasValue)
+            {
+                throw new ValidationException("A custom carryover amount is required when CarryoverMode is CustomAmount.");
+            }
+
+            decimal customVal = Math.Round(request.CustomCarryoverAmount.Value, 2);
+            if (customVal < 0.00m || customVal > grossEntitlement)
+            {
+                throw new ValidationException(
+                    $"Custom carryover amount (₱{customVal:N2}) must be between ₱0.00 and the member's gross entitlement (₱{grossEntitlement:N2}).");
+            }
+        }
+
+        var (effectiveMode, carryCap, carryDiv, carryPat, carriedOver, netCashPayout) = ResolveCarryoverAmounts(
+            memberAlloc.TotalContribution,
+            memberAlloc.DividendEarned,
+            memberAlloc.PatronageEarned,
+            request.CarryoverMode,
+            request.CarryoverCapital,
+            request.CarryoverDividend,
+            request.CarryoverPatronage,
+            request.CustomCarryoverAmount ?? 0.00m);
+
+        var distribution = existingDist;
+        if (distribution == null)
+        {
+            distribution = new SurplusDistribution
+            {
+                Id = Guid.NewGuid(),
+                FiscalYear = fiscalYear,
+                TotalInterestIncome = preview.TotalDistributableInterest,
+                DividendPool = preview.DividendPool,
+                PatronagePool = preview.PatronagePool,
+                ManagementPool = preview.ManagementPool,
+                IsFinalized = false
+            };
+            _context.SurplusDistributions.Add(distribution);
+        }
+
+        var ledger = distribution.MemberLedgers.FirstOrDefault(l => l.MemberId == memberId);
+        if (ledger == null)
+        {
+            ledger = new MemberSurplusLedger
+            {
+                Id = Guid.NewGuid(),
+                DistributionId = distribution.Id,
+                MemberId = memberId
+            };
+            _context.MemberSurplusLedgers.Add(ledger);
+        }
+
+        ledger.TotalContribution = memberAlloc.TotalContribution;
+        ledger.ContributionRatio = memberAlloc.ContributionRatio;
+        ledger.DividendEarned = memberAlloc.DividendEarned;
+        ledger.TotalLoansBorrowed = memberAlloc.TotalLoansBorrowed;
+        ledger.LoanRatio = memberAlloc.LoanRatio;
+        ledger.PatronageEarned = memberAlloc.PatronageEarned;
+        ledger.NetSavingsCredited = grossEntitlement;
+        ledger.CarryoverMode = effectiveMode;
+        ledger.CarryoverCapital = carryCap;
+        ledger.CarryoverDividend = carryDiv;
+        ledger.CarryoverPatronage = carryPat;
+        ledger.CarriedOverAmount = carriedOver;
+        ledger.NetCashPayout = netCashPayout;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return memberAlloc with
+        {
+            CarryoverMode = effectiveMode,
+            CarryoverCapital = carryCap,
+            CarryoverDividend = carryDiv,
+            CarryoverPatronage = carryPat,
+            CarriedOverAmount = carriedOver,
+            NetCashPayout = netCashPayout
+        };
+    }
+
+    private static (CarryoverMode Mode, bool CarryCap, bool CarryDiv, bool CarryPat, decimal CarriedOver, decimal NetCashPayout)
+        ResolveCarryoverAmounts(
+            decimal totalContribution,
+            decimal dividendEarned,
+            decimal patronageEarned,
+            CarryoverMode requestedMode,
+            bool carryCap,
+            bool carryDiv,
+            bool carryPat,
+            decimal customAmount)
+    {
+        decimal grossEntitlement = Math.Round(totalContribution + dividendEarned + patronageEarned, 2);
+
+        switch (requestedMode)
+        {
+            case CarryoverMode.SpecificBuckets:
+            {
+                decimal sum = 0.00m;
+                if (carryCap) sum += totalContribution;
+                if (carryDiv) sum += dividendEarned;
+                if (carryPat) sum += patronageEarned;
+                decimal carried = Math.Round(Math.Min(sum, grossEntitlement), 2);
+                if (!carryCap && !carryDiv && !carryPat)
+                {
+                    return (CarryoverMode.None, false, false, false, 0.00m, grossEntitlement);
+                }
+                return (CarryoverMode.SpecificBuckets, carryCap, carryDiv, carryPat, carried, Math.Round(grossEntitlement - carried, 2));
+            }
+            case CarryoverMode.CustomAmount:
+            {
+                decimal clamped = Math.Round(Math.Clamp(customAmount, 0.00m, grossEntitlement), 2);
+                if (clamped == 0.00m)
+                {
+                    return (CarryoverMode.None, false, false, false, 0.00m, grossEntitlement);
+                }
+                return (CarryoverMode.CustomAmount, false, false, false, clamped, Math.Round(grossEntitlement - clamped, 2));
+            }
+            default:
+                return (CarryoverMode.None, false, false, false, 0.00m, grossEntitlement);
+        }
     }
 
     public async Task<DistributionPreviewDto> FinalizeDistributionAsync(int fiscalYear, CancellationToken cancellationToken = default)
@@ -308,7 +535,7 @@ public class DistributionService : IDistributionService
             _context.MemberSurplusLedgers.RemoveRange(existing.MemberLedgers);
         }
 
-        // Add MemberSurplusLedger entries
+        // Add MemberSurplusLedger entries (preserving carryover elections & payout figures)
         foreach (var item in preview.Allocations)
         {
             var ledger = new MemberSurplusLedger
@@ -322,12 +549,18 @@ public class DistributionService : IDistributionService
                 TotalLoansBorrowed = item.TotalLoansBorrowed,
                 LoanRatio = item.LoanRatio,
                 PatronageEarned = item.PatronageEarned,
-                NetSavingsCredited = item.NetSavingsCredited
+                NetSavingsCredited = item.NetSavingsCredited,
+                CarryoverMode = item.CarryoverMode,
+                CarryoverCapital = item.CarryoverCapital,
+                CarryoverDividend = item.CarryoverDividend,
+                CarryoverPatronage = item.CarryoverPatronage,
+                CarriedOverAmount = item.CarriedOverAmount,
+                NetCashPayout = item.NetCashPayout
             };
             _context.MemberSurplusLedgers.Add(ledger);
         }
 
-        // Close all semi-monthly cutoffs for this fiscal year
+        // Close all cutoffs for this fiscal year
         var cutoffs = await _context.CutoffPeriods
             .Where(c => c.FiscalYear == fiscalYear)
             .ToListAsync(cancellationToken);
@@ -337,15 +570,73 @@ public class DistributionService : IDistributionService
             c.IsClosed = true;
         }
 
-        // Automatically generate next fiscal year's 24 semi-monthly cutoff periods if they do not exist yet
+        // Auto-create next fiscal year's Opening Balance CutoffPeriod (IsOpening = true, IsClosed = true) if it does not exist
         int nextFiscalYear = fiscalYear + 1;
+        var openingCutoff = await _context.CutoffPeriods
+            .FirstOrDefaultAsync(c => c.FiscalYear == nextFiscalYear && c.IsOpening, cancellationToken);
+
+        if (openingCutoff == null)
+        {
+            openingCutoff = new CutoffPeriod
+            {
+                Id = Guid.NewGuid(),
+                CutoffDate = new DateTime(nextFiscalYear, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                Label = $"FY {nextFiscalYear} Opening",
+                FiscalYear = nextFiscalYear,
+                IsOpening = true,
+                IsClosed = true,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.CutoffPeriods.Add(openingCutoff);
+        }
+
+        // Automatically generate next fiscal year's 24 semi-monthly cutoff periods (C01-C24) if they do not exist yet
         bool hasNextYearCutoffs = await _context.CutoffPeriods
-            .AnyAsync(c => c.FiscalYear == nextFiscalYear, cancellationToken);
+            .AnyAsync(c => c.FiscalYear == nextFiscalYear && !c.IsOpening, cancellationToken);
 
         if (!hasNextYearCutoffs)
         {
             var nextYearCutoffs = DbInitializer.BuildCutoffPeriodsForYear(nextFiscalYear);
             _context.CutoffPeriods.AddRange(nextYearCutoffs);
+        }
+
+        // For every member with CarriedOverAmount > 0, insert a Contribution record into next FY's Opening Balance cutoff
+        var existingOpeningContribs = await _context.Contributions
+            .Where(c => c.CutoffId == openingCutoff.Id)
+            .ToDictionaryAsync(c => c.MemberId, cancellationToken);
+
+        foreach (var item in preview.Allocations.Where(a => a.CarriedOverAmount > 0m))
+        {
+            if (existingOpeningContribs.TryGetValue(item.MemberId, out var existingContrib))
+            {
+                existingContrib.Amount = item.CarriedOverAmount;
+                existingContrib.PaymentChannel = PaymentChannel.CarryoverReinvestment;
+            }
+            else
+            {
+                _context.Contributions.Add(new Contribution
+                {
+                    Id = Guid.NewGuid(),
+                    MemberId = item.MemberId,
+                    CutoffId = openingCutoff.Id,
+                    Amount = item.CarriedOverAmount,
+                    PaymentChannel = PaymentChannel.CarryoverReinvestment,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+
+        // Deduct ONLY the aggregate NetCashPayout from primary BankAccount.CurrentBalance,
+        // leaving carried-over funds retained in the bank for Day-1 FIFO Loan Queue liquidity.
+        var primaryBank = await _context.BankAccounts
+            .OrderByDescending(b => b.IsPrimary)
+            .ThenBy(b => b.BankName)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (primaryBank != null && preview.TotalNetCashPayout > 0m)
+        {
+            primaryBank.CurrentBalance = Math.Round(primaryBank.CurrentBalance - preview.TotalNetCashPayout, 2);
+            primaryBank.UpdatedAt = DateTime.UtcNow;
         }
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -411,6 +702,8 @@ public class DistributionService : IDistributionService
         decimal patronageEarned = memberAlloc?.PatronageEarned ?? 0m;
         decimal totalSurplusEarned = dividendEarned + patronageEarned;
         decimal netSavingsCredited = totalContributions + totalSurplusEarned;
+        decimal carriedOverAmount = memberAlloc?.CarriedOverAmount ?? 0.00m;
+        decimal netCashPayout = memberAlloc != null ? memberAlloc.NetCashPayout : netSavingsCredited;
 
         return new MemberStatementOfAccountDto(
             member.Id,
@@ -431,7 +724,9 @@ public class DistributionService : IDistributionService
             netSavingsCredited,
             preview.IsAlreadyFinalized,
             contributions,
-            loans
+            loans,
+            carriedOverAmount,
+            netCashPayout
         );
     }
 }

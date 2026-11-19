@@ -96,7 +96,7 @@ export const AppRoutes: React.FC = () => {
         <Route
           path="/distribution"
           element={
-            <ProtectedRoute allowedRoles={["Admin", "Member"]}>
+            <ProtectedRoute allowedRoles={["Admin", "User", "Member"]}>
               <DistributionPage />
             </ProtectedRoute>
           }

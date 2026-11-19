@@ -62,7 +62,7 @@ public static class DbInitializer
         System.Threading.CancellationToken cancellationToken = default)
     {
         var existing = await context.CutoffPeriods
-            .Where(c => c.FiscalYear == fiscalYear)
+            .Where(c => c.FiscalYear == fiscalYear && !c.IsOpening)
             .OrderBy(c => c.CutoffDate)
             .ToListAsync(cancellationToken);
 
@@ -77,9 +77,14 @@ public static class DbInitializer
         return generated;
     }
 
-    public static async Task InitializeAsync(AppDbContext context, ILogger logger)
+    public static async Task InitializeAsync(AppDbContext context, ILogger logger, bool isProduction = false)
     {
-        logger.LogInformation("Ensuring database is created and initialized...");
+        var railwayEnv = Environment.GetEnvironmentVariable("RAILWAY_ENVIRONMENT_NAME")
+            ?? Environment.GetEnvironmentVariable("RAILWAY_ENVIRONMENT");
+        bool effectiveProduction = isProduction
+            || string.Equals(railwayEnv, "Production", StringComparison.OrdinalIgnoreCase);
+
+        logger.LogInformation("Ensuring database is created and initialized (Production={IsProduction})...", effectiveProduction);
         await context.Database.EnsureCreatedAsync();
 
         if (context.Database.IsRelational())
@@ -126,6 +131,13 @@ public static class DbInitializer
                     ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""MemberId"" uuid NULL;
                     ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""PasswordResetTokenHash"" character varying(128) NULL;
                     ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""PasswordResetTokenExpiresAt"" timestamp with time zone NULL;
+                    ALTER TABLE ""CutoffPeriods"" ADD COLUMN IF NOT EXISTS ""IsOpening"" boolean NOT NULL DEFAULT false;
+                    ALTER TABLE ""MemberSurplusLedgers"" ADD COLUMN IF NOT EXISTS ""CarryoverMode"" text NOT NULL DEFAULT 'None';
+                    ALTER TABLE ""MemberSurplusLedgers"" ADD COLUMN IF NOT EXISTS ""CarryoverCapital"" boolean NOT NULL DEFAULT false;
+                    ALTER TABLE ""MemberSurplusLedgers"" ADD COLUMN IF NOT EXISTS ""CarryoverDividend"" boolean NOT NULL DEFAULT false;
+                    ALTER TABLE ""MemberSurplusLedgers"" ADD COLUMN IF NOT EXISTS ""CarryoverPatronage"" boolean NOT NULL DEFAULT false;
+                    ALTER TABLE ""MemberSurplusLedgers"" ADD COLUMN IF NOT EXISTS ""CarriedOverAmount"" numeric(14,2) NOT NULL DEFAULT 0.00;
+                    ALTER TABLE ""MemberSurplusLedgers"" ADD COLUMN IF NOT EXISTS ""NetCashPayout"" numeric(14,2) NOT NULL DEFAULT 0.00;
                     DO $$
                     BEGIN
                         IF NOT EXISTS (
@@ -153,7 +165,7 @@ public static class DbInitializer
 
         const int fiscalYear = 2026;
 
-        // 1. Ensure Demo Accounts (Admin & User) always exist and have valid credentials
+        // 1. Ensure initial operator accounts (Admin & Loan Officer) exist
         var existingAdmin = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "admin");
         if (existingAdmin == null)
         {
@@ -168,7 +180,7 @@ public static class DbInitializer
                 CreatedAt = DateTime.UtcNow
             });
         }
-        else
+        else if (!effectiveProduction)
         {
             bool validAdminPass = false;
             try
@@ -202,7 +214,7 @@ public static class DbInitializer
                 CreatedAt = DateTime.UtcNow
             });
         }
-        else
+        else if (!effectiveProduction)
         {
             bool validUserPass = false;
             try
@@ -222,53 +234,75 @@ public static class DbInitializer
             }
         }
 
-        var existingMemberUser = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "member");
-        if (existingMemberUser == null)
+        if (!effectiveProduction)
         {
-            logger.LogInformation("Seeding default Member self-service (member) account...");
-            existingMemberUser = new UserAccount
+            var existingMemberUser = await context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == "member");
+            if (existingMemberUser == null)
             {
-                Username = "member",
-                Email = "member@coopis.org",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Member123!"),
-                Role = UserRole.Member,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow
-            };
-            context.Users.Add(existingMemberUser);
-        }
-        else
-        {
-            bool validMemberPass = false;
-            try
-            {
-                validMemberPass = BCrypt.Net.BCrypt.Verify("Member123!", existingMemberUser.PasswordHash);
+                logger.LogInformation("Seeding default Member self-service (member) account...");
+                existingMemberUser = new UserAccount
+                {
+                    Username = "member",
+                    Email = "member@coopis.org",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Member123!"),
+                    Role = UserRole.Member,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                context.Users.Add(existingMemberUser);
             }
-            catch
+            else
             {
-                validMemberPass = false;
+                bool validMemberPass = false;
+                try
+                {
+                    validMemberPass = BCrypt.Net.BCrypt.Verify("Member123!", existingMemberUser.PasswordHash);
+                }
+                catch
+                {
+                    validMemberPass = false;
+                }
+
+                if (!validMemberPass || !existingMemberUser.IsActive || existingMemberUser.Role != UserRole.Member)
+                {
+                    existingMemberUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Member123!");
+                    existingMemberUser.IsActive = true;
+                    existingMemberUser.Role = UserRole.Member;
+                }
             }
 
-            if (!validMemberPass || !existingMemberUser.IsActive || existingMemberUser.Role != UserRole.Member)
+            if (!existingMemberUser.MemberId.HasValue)
             {
-                existingMemberUser.PasswordHash = BCrypt.Net.BCrypt.HashPassword("Member123!");
-                existingMemberUser.IsActive = true;
-                existingMemberUser.Role = UserRole.Member;
-            }
-        }
-
-        if (!existingMemberUser.MemberId.HasValue)
-        {
-            var demoMember = await context.Members
-                .OrderBy(m => m.MemberCode)
-                .FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE);
-            if (demoMember != null)
-            {
-                existingMemberUser.MemberId = demoMember.Id;
+                var demoMember = await context.Members
+                    .OrderBy(m => m.MemberCode)
+                    .FirstOrDefaultAsync(m => m.Status == MemberStatus.ACTIVE);
+                if (demoMember != null)
+                {
+                    existingMemberUser.MemberId = demoMember.Id;
+                }
             }
         }
 
         await context.SaveChangesAsync();
+
+        // Production Guard: Never re-seed FY 2026 cutoffs or 2026 sample Excel data in Production.
+        if (effectiveProduction)
+        {
+            if (await context.CutoffPeriods.AnyAsync())
+            {
+                var prodLatestYear = await context.CutoffPeriods.MaxAsync(c => c.FiscalYear);
+                var prodHasOpen = await context.CutoffPeriods.AnyAsync(c => c.FiscalYear == prodLatestYear && !c.IsClosed);
+                if (!prodHasOpen)
+                {
+                    int nextProdYear = prodLatestYear + 1;
+                    logger.LogInformation("All cutoff periods for FY {LatestYear} are closed. Rolling over to FY {NextYear}...", prodLatestYear, nextProdYear);
+                    await EnsureFiscalYearCutoffsAsync(context, nextProdYear);
+                }
+            }
+
+            logger.LogInformation("Production environment guard active — skipping FY 2026 cutoff & sample spreadsheet reseeding.");
+            return;
+        }
 
         // 2. Seed 24 Cutoff Periods for 2026
         if (!await context.CutoffPeriods.AnyAsync(c => c.FiscalYear == fiscalYear))

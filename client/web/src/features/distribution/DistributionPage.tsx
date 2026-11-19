@@ -3,10 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 import {
+  CarryoverMode,
   CutoffPeriod,
   DistributionPreview,
   MemberAllocation,
   MemberStatementOfAccount,
+  UpdateMemberCarryoverRequest,
 } from "../../types";
 import { useToast } from "../../components/ui/Toast";
 import { TablePagination, DEFAULT_PAGE_SIZE } from "../../components/ui/TablePagination";
@@ -28,11 +30,16 @@ import {
   UserCheck,
   Wallet,
   HandCoins,
+  RefreshCw,
+  AlertTriangle,
+  Banknote,
+  SlidersHorizontal,
 } from "lucide-react";
 
 export const DistributionPage: React.FC = () => {
   const { user } = useAuth();
   const isMember = user?.role === "Member";
+  const isAdmin = user?.role === "Admin";
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -49,6 +56,14 @@ export const DistributionPage: React.FC = () => {
   // Two-step Finalize Confirmation Dialog
   const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState<boolean>(false);
   const [confirmCheckbox, setConfirmCheckbox] = useState<boolean>(false);
+
+  // Carryover Election Modal state
+  const [carryoverMember, setCarryoverMember] = useState<MemberAllocation | null>(null);
+  const [selectedMode, setSelectedMode] = useState<CarryoverMode>("None");
+  const [carryCapital, setCarryCapital] = useState<boolean>(false);
+  const [carryDividend, setCarryDividend] = useState<boolean>(false);
+  const [carryPatronage, setCarryPatronage] = useState<boolean>(false);
+  const [customAmountInput, setCustomAmountInput] = useState<string>("");
 
   // Statement of Account (SOA) Modal
   const [selectedSoaMemberId, setSelectedSoaMemberId] = useState<string | null>(null);
@@ -129,6 +144,8 @@ export const DistributionPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["distribution-preview", fiscalYear] });
       queryClient.invalidateQueries({ queryKey: ["cutoff-periods"] });
       queryClient.invalidateQueries({ queryKey: ["accounting-balance-sheet"] });
+      queryClient.invalidateQueries({ queryKey: ["bank-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["bank-liquidity"] });
     },
     onError: (err: any) => {
       const msg =
@@ -139,6 +156,132 @@ export const DistributionPage: React.FC = () => {
       showToast("error", "Finalization Failed", msg);
     },
   });
+
+  // 4. Update Member Carryover Election Mutation
+  const updateCarryoverMutation = useMutation({
+    mutationFn: async ({
+      memberId,
+      payload,
+    }: {
+      memberId: string;
+      payload: UpdateMemberCarryoverRequest;
+    }) => {
+      const res = await api.put<MemberAllocation>(
+        `/distribution/${fiscalYear}/member/${memberId}/carryover`,
+        payload
+      );
+      return res.data;
+    },
+    onSuccess: (updated) => {
+      showToast(
+        "success",
+        "Carryover Election Saved",
+        `${updated.memberName}: ₱${updated.carriedOverAmount.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+        })} carried over to FY ${fiscalYear + 1}, ₱${updated.netCashPayout.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+        })} net cash payout.`
+      );
+      setCarryoverMember(null);
+      queryClient.invalidateQueries({ queryKey: ["distribution-preview", fiscalYear] });
+    },
+    onError: (err: any) => {
+      const msg =
+        err.response?.data?.detail ||
+        err.response?.data?.message ||
+        err.message ||
+        "Failed to save carryover election.";
+      showToast("error", "Carryover Update Failed", msg);
+    },
+  });
+
+  const openCarryoverModal = (member: MemberAllocation) => {
+    setCarryoverMember(member);
+    setSelectedMode(member.carryoverMode || "None");
+    setCarryCapital(Boolean(member.carryoverCapital));
+    setCarryDividend(Boolean(member.carryoverDividend));
+    setCarryPatronage(Boolean(member.carryoverPatronage));
+    setCustomAmountInput(
+      member.carryoverMode === "CustomAmount" ? member.carriedOverAmount.toFixed(2) : ""
+    );
+  };
+
+  const modalGrossEntitlement = carryoverMember
+    ? Math.round(
+        (carryoverMember.totalContribution +
+          carryoverMember.dividendEarned +
+          carryoverMember.patronageEarned) *
+          100
+      ) / 100
+    : 0;
+
+  const modalParsedCustom = customAmountInput.trim() === "" ? 0 : Number(customAmountInput);
+  const modalCustomInvalid =
+    selectedMode === "CustomAmount" &&
+    (Number.isNaN(modalParsedCustom) ||
+      modalParsedCustom < 0 ||
+      modalParsedCustom > modalGrossEntitlement);
+
+  const modalPreviewCarriedOver = useMemo(() => {
+    if (!carryoverMember) return 0;
+    if (selectedMode === "None") return 0;
+    if (selectedMode === "SpecificBuckets") {
+      let sum = 0;
+      if (carryCapital) sum += carryoverMember.totalContribution;
+      if (carryDividend) sum += carryoverMember.dividendEarned;
+      if (carryPatronage) sum += carryoverMember.patronageEarned;
+      return Math.round(Math.min(sum, modalGrossEntitlement) * 100) / 100;
+    }
+    if (Number.isNaN(modalParsedCustom)) return 0;
+    return Math.round(Math.max(0, Math.min(modalParsedCustom, modalGrossEntitlement)) * 100) / 100;
+  }, [
+    carryoverMember,
+    selectedMode,
+    carryCapital,
+    carryDividend,
+    carryPatronage,
+    modalParsedCustom,
+    modalGrossEntitlement,
+  ]);
+
+  const modalPreviewNetCashPayout =
+    Math.round(Math.max(0, modalGrossEntitlement - modalPreviewCarriedOver) * 100) / 100;
+
+  const handleSaveCarryover = () => {
+    if (!carryoverMember || modalCustomInvalid) return;
+    const payload: UpdateMemberCarryoverRequest = {
+      carryoverMode: selectedMode,
+      carryoverCapital: selectedMode === "SpecificBuckets" ? carryCapital : false,
+      carryoverDividend: selectedMode === "SpecificBuckets" ? carryDividend : false,
+      carryoverPatronage: selectedMode === "SpecificBuckets" ? carryPatronage : false,
+      customCarryoverAmount:
+        selectedMode === "CustomAmount" ? Math.round(modalParsedCustom * 100) / 100 : null,
+    };
+    updateCarryoverMutation.mutate({ memberId: carryoverMember.memberId, payload });
+  };
+
+  const formatCarryoverBadge = (a: MemberAllocation) => {
+    if (a.carryoverMode === "SpecificBuckets" && a.carriedOverAmount > 0) {
+      const parts: string[] = [];
+      if (a.carryoverCapital) parts.push("Cap");
+      if (a.carryoverDividend) parts.push("Div");
+      if (a.carryoverPatronage) parts.push("Pat");
+      return {
+        label: parts.length === 3 ? "Rollover 100%" : `Buckets: ${parts.join(" + ")}`,
+        className: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      };
+    }
+    if (a.carryoverMode === "CustomAmount" && a.carriedOverAmount > 0) {
+      return {
+        label: "Custom Amount",
+        className: "bg-violet-50 text-violet-700 border-violet-200",
+      };
+    }
+    return {
+      label: "Full Payout",
+      className: "bg-slate-100 text-slate-600 border-slate-200",
+    };
+  };
 
   // Handle Sort Toggle
   const handleSort = (field: keyof MemberAllocation) => {
@@ -193,14 +336,17 @@ export const DistributionPage: React.FC = () => {
       "Member ID",
       "Member Name",
       "Email",
-      "Total Contribution (PHP)",
+      "Ending Capital (PHP)",
       "Contribution Ratio",
       "Dividend Earned (PHP)",
       "Total Borrowing Volume (PHP)",
       "Loan Ratio",
       "Patronage Refund (PHP)",
       "Total Surplus Earned (PHP)",
-      "Net Credited Savings (PHP)",
+      "Gross Entitlement (PHP)",
+      "Carryover Mode",
+      `Carried Over to FY${fiscalYear + 1} (PHP)`,
+      "Net Cash Payout (PHP)",
     ];
 
     const rows = preview.allocations.map((a) => [
@@ -215,6 +361,9 @@ export const DistributionPage: React.FC = () => {
       a.patronageEarned.toFixed(2),
       a.totalSurplusEarned.toFixed(2),
       a.netSavingsCredited.toFixed(2),
+      `"${a.carryoverMode || "None"}"`,
+      (a.carriedOverAmount ?? 0).toFixed(2),
+      (a.netCashPayout ?? a.netSavingsCredited).toFixed(2),
     ]);
 
     const csvContent =
@@ -250,9 +399,13 @@ export const DistributionPage: React.FC = () => {
               <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
                 Member Self-Service
               </span>
-            ) : (
+            ) : isAdmin ? (
               <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                Admin Only
+                Admin
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                Loan Officer
               </span>
             )}
           </div>
@@ -401,6 +554,159 @@ export const DistributionPage: React.FC = () => {
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* YEAR-END PAYOUT & CAPITAL CARRYOVER SUMMARY BANNER */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                      <RefreshCw className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">
+                        Year-End Payout & Capital Carryover Summary (FY {fiscalYear} → FY {fiscalYear + 1})
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Carried-over member funds stay in the primary bank account as Day-1 liquidity for the FIFO Loan Queue.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-500">
+                    Primary Bank Cash:{" "}
+                    <span className="font-mono font-bold text-slate-900">
+                      ₱
+                      {(preview?.primaryBankBalance || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Total Gross Entitlement */}
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                        Total Gross Entitlement
+                      </span>
+                      <Wallet className="w-4 h-4 text-slate-400" />
+                    </div>
+                    <div className="text-2xl font-black font-mono text-slate-900">
+                      ₱
+                      {(preview?.totalGrossEntitlement || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Ending Capital + Dividend ({preview?.dividendWeightPercent ?? 65}%) + Patronage ({preview?.patronageWeightPercent ?? 30}%)
+                    </p>
+                  </div>
+
+                  {/* Total Carried Over to FY+1 */}
+                  <div className="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold uppercase tracking-wider text-indigo-900">
+                        Carried Over to FY {fiscalYear + 1}
+                      </span>
+                      <RefreshCw className="w-4 h-4 text-indigo-600" />
+                    </div>
+                    <div className="text-2xl font-black font-mono text-indigo-950">
+                      ₱
+                      {(preview?.totalCarriedOverAmount || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                    <p className="text-[11px] text-indigo-700 mt-1">
+                      Retained in Bank for Loan Queue •{" "}
+                      {(preview?.allocations || []).filter((a) => (a.carriedOverAmount || 0) > 0).length} member(s) electing carryover
+                    </p>
+                  </div>
+
+                  {/* Total Cash Required for Payout */}
+                  <div
+                    className={`p-4 rounded-xl border ${
+                      preview?.hasLiquidityShortfall
+                        ? "bg-rose-50/80 border-rose-300"
+                        : "bg-emerald-50/70 border-emerald-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span
+                        className={`text-xs font-bold uppercase tracking-wider ${
+                          preview?.hasLiquidityShortfall ? "text-rose-900" : "text-emerald-900"
+                        }`}
+                      >
+                        Total Cash Required for Payout
+                      </span>
+                      <Banknote
+                        className={`w-4 h-4 ${
+                          preview?.hasLiquidityShortfall ? "text-rose-600" : "text-emerald-600"
+                        }`}
+                      />
+                    </div>
+                    <div
+                      className={`text-2xl font-black font-mono ${
+                        preview?.hasLiquidityShortfall ? "text-rose-900" : "text-emerald-950"
+                      }`}
+                    >
+                      ₱
+                      {(preview?.totalNetCashPayout || 0).toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                      })}
+                    </div>
+                    <p
+                      className={`text-[11px] mt-1 ${
+                        preview?.hasLiquidityShortfall ? "text-rose-700 font-semibold" : "text-emerald-700"
+                      }`}
+                    >
+                      {preview?.hasLiquidityShortfall
+                        ? `Exceeds Primary Bank Cash by ₱${(
+                            preview?.liquidityShortfallAmount || 0
+                          ).toLocaleString("en-US", { minimumFractionDigits: 2 })}`
+                        : `Covered by Primary Bank Cash (₱${Math.max(
+                            0,
+                            (preview?.primaryBankBalance || 0) - (preview?.totalNetCashPayout || 0)
+                          ).toLocaleString("en-US", { minimumFractionDigits: 2 })} remaining)`}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Liquidity Validation Warning */}
+                {preview?.hasLiquidityShortfall && (
+                  <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-xs leading-relaxed">
+                      <div className="font-bold text-amber-950">
+                        Liquidity Warning: Net Cash Payouts Exceed Available Primary Bank Cash
+                      </div>
+                      <p className="mt-0.5">
+                        Total cash required for payout (
+                        <span className="font-mono font-bold">
+                          ₱
+                          {(preview.totalNetCashPayout || 0).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                        ) exceeds the primary bank account balance (
+                        <span className="font-mono font-bold">
+                          ₱
+                          {(preview.primaryBankBalance || 0).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                        ) by{" "}
+                        <span className="font-mono font-bold text-rose-700">
+                          ₱
+                          {(preview.liquidityShortfallAmount || 0).toLocaleString("en-US", {
+                            minimumFractionDigits: 2,
+                          })}
+                        </span>
+                        . Flag additional members for Capital/Surplus Carryover below or reconcile bank cash before finalizing.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -623,7 +929,7 @@ export const DistributionPage: React.FC = () => {
                       </div>
 
                       <div className="px-4 py-3.5 flex items-center justify-between bg-slate-900 text-white font-extrabold">
-                        <div>Total Net Credited Savings (Share Capital + Surplus Earned)</div>
+                        <div>Total Gross Entitlement (Share Capital + Surplus Earned)</div>
                         <div className="font-mono text-base text-emerald-400">
                           ₱
                           {myAllocation.netSavingsCredited.toLocaleString("en-US", {
@@ -631,6 +937,31 @@ export const DistributionPage: React.FC = () => {
                           })}
                         </div>
                       </div>
+
+                      {(myAllocation.carriedOverAmount || 0) > 0 && (
+                        <>
+                          <div className="px-4 py-3 flex items-center justify-between bg-indigo-50/70">
+                            <div className="font-semibold text-indigo-900">
+                              (-) Carried Over to FY {fiscalYear + 1} Opening Capital
+                            </div>
+                            <div className="font-mono font-bold text-indigo-700">
+                              ₱
+                              {myAllocation.carriedOverAmount.toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </div>
+                          </div>
+                          <div className="px-4 py-3 flex items-center justify-between bg-emerald-50/70 font-bold">
+                            <div className="text-emerald-950">(=) Net Cash Payout</div>
+                            <div className="font-mono text-emerald-800">
+                              ₱
+                              {myAllocation.netCashPayout.toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                              })}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -669,10 +1000,10 @@ export const DistributionPage: React.FC = () => {
                     Export CSV
                   </button>
 
-                  {!preview?.isAlreadyFinalized && (
+                  {isAdmin && !preview?.isAlreadyFinalized && (
                     <button
                       onClick={() => setIsFinalizeModalOpen(true)}
-                      className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded-xl transition-all shadow-sm"
+                      className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-1.5 rounded-xl transition-all shadow-sm cursor-pointer"
                     >
                       <CheckCircle className="w-3.5 h-3.5" />
                       Finalize FY {fiscalYear}
@@ -691,7 +1022,7 @@ export const DistributionPage: React.FC = () => {
                         className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
                       >
                         <div className="flex items-center justify-end gap-1">
-                          Total Capital (₱)
+                          Ending Capital
                           <ArrowUpDown className="w-3 h-3" />
                         </div>
                       </th>
@@ -701,15 +1032,6 @@ export const DistributionPage: React.FC = () => {
                       >
                         <div className="flex items-center justify-end gap-1">
                           Dividend ({preview?.dividendWeightPercent ?? 65}%)
-                          <ArrowUpDown className="w-3 h-3" />
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort("totalLoansBorrowed")}
-                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
-                      >
-                        <div className="flex items-center justify-end gap-1">
-                          Loan Volume (₱)
                           <ArrowUpDown className="w-3 h-3" />
                         </div>
                       </th>
@@ -726,8 +1048,27 @@ export const DistributionPage: React.FC = () => {
                         onClick={() => handleSort("netSavingsCredited")}
                         className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
                       >
+                        <div className="flex items-center justify-end gap-1 font-bold text-slate-800">
+                          Gross Entitlement
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th className="py-3 px-4 text-center">Carryover Election</th>
+                      <th
+                        onClick={() => handleSort("carriedOverAmount")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
+                        <div className="flex items-center justify-end gap-1 font-bold text-indigo-800">
+                          Carried Over
+                          <ArrowUpDown className="w-3 h-3" />
+                        </div>
+                      </th>
+                      <th
+                        onClick={() => handleSort("netCashPayout")}
+                        className="py-3 px-4 text-right cursor-pointer hover:text-slate-900"
+                      >
                         <div className="flex items-center justify-end gap-1 font-bold text-emerald-800">
-                          Net Savings Credited
+                          Net Cash Payout
                           <ArrowUpDown className="w-3 h-3" />
                         </div>
                       </th>
@@ -735,44 +1076,68 @@ export const DistributionPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {paginatedAllocations.map((a) => (
-                      <tr key={a.memberId} className="hover:bg-slate-50/70 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900">{a.memberName}</div>
-                          <div className="text-xs font-mono text-slate-400">{a.memberCode}</div>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
-                          ₱{a.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                          <div className="text-[10px] text-slate-400">
-                            {(a.contributionRatio * 100).toFixed(2)}% share
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
-                          ₱{a.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
-                          ₱{a.totalLoansBorrowed.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                          <div className="text-[10px] text-slate-400">
-                            {(a.loanRatio * 100).toFixed(2)}% volume
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700">
-                          ₱{a.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-800 text-sm">
-                          ₱{a.netSavingsCredited.toLocaleString("en-US", { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="py-3.5 px-4 text-center">
-                          <button
-                            onClick={() => setSelectedSoaMemberId(a.memberId)}
-                            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-                          >
-                            <FileText className="w-3 h-3 text-slate-500" />
-                            View SOA
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {paginatedAllocations.map((a) => {
+                      const badge = formatCarryoverBadge(a);
+                      return (
+                        <tr key={a.memberId} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900">{a.memberName}</div>
+                            <div className="text-xs font-mono text-slate-400">{a.memberCode}</div>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-medium text-slate-800">
+                            ₱{a.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                            <div className="text-[10px] text-slate-400">
+                              {(a.contributionRatio * 100).toFixed(2)}% share
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-700">
+                            ₱{a.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-700">
+                            ₱{a.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                            <div className="text-[10px] font-normal text-slate-400">
+                              Vol: ₱{a.totalLoansBorrowed.toLocaleString("en-US", { minimumFractionDigits: 0 })}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-slate-900 text-sm">
+                            ₱{a.netSavingsCredited.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            {!preview?.isAlreadyFinalized ? (
+                              <button
+                                onClick={() => openCarryoverModal(a)}
+                                className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg border transition-all hover:shadow-xs cursor-pointer ${badge.className}`}
+                                title="Configure Carryover Election"
+                              >
+                                <SlidersHorizontal className="w-3 h-3" />
+                                {badge.label}
+                              </button>
+                            ) : (
+                              <span
+                                className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg border ${badge.className}`}
+                              >
+                                {badge.label}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-bold text-indigo-700 text-sm">
+                            ₱{(a.carriedOverAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3.5 px-4 text-right font-mono font-black text-emerald-800 text-sm">
+                            ₱{(a.netCashPayout ?? a.netSavingsCredited).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              onClick={() => setSelectedSoaMemberId(a.memberId)}
+                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+                            >
+                              <FileText className="w-3 h-3 text-slate-500" />
+                              View SOA
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -802,9 +1167,9 @@ export const DistributionPage: React.FC = () => {
       )}
 
       {/* 3. STEP 4: TWO-STEP FINALIZE CONFIRMATION MODAL */}
-      {isFinalizeModalOpen && !isMember && (
+      {isFinalizeModalOpen && isAdmin && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50/60">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
@@ -814,7 +1179,7 @@ export const DistributionPage: React.FC = () => {
                   <h3 className="font-bold text-slate-900 text-base">
                     Confirm Year-End Finalization
                   </h3>
-                  <p className="text-xs text-slate-500">Fiscal Year {fiscalYear} Closeout</p>
+                  <p className="text-xs text-slate-500">Fiscal Year {fiscalYear} Closeout & FY {fiscalYear + 1} Carryover</p>
                 </div>
               </div>
               <button
@@ -829,18 +1194,43 @@ export const DistributionPage: React.FC = () => {
               <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-medium">
                 Warning: This action is permanent and legally binding under cooperative law.
               </div>
+
+              {preview?.hasLiquidityShortfall && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 font-medium flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <span>
+                    Cash payout (₱{(preview.totalNetCashPayout || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}) exceeds Primary Bank balance (₱{(preview.primaryBankBalance || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}) by ₱{(preview.liquidityShortfallAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}.
+                  </span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                  <div className="text-[10px] font-bold uppercase text-indigo-700">Carried Over to FY {fiscalYear + 1}</div>
+                  <div className="text-base font-black font-mono text-indigo-950 mt-0.5">
+                    ₱{(preview?.totalCarriedOverAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <div className="text-[10px] font-bold uppercase text-emerald-700">Deducted from Primary Bank</div>
+                  <div className="text-base font-black font-mono text-emerald-950 mt-0.5">
+                    ₱{(preview?.totalNetCashPayout || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
               <p>By confirming this closeout:</p>
               <ul className="list-disc list-inside space-y-1 text-slate-700 font-medium">
                 <li>All 24 semi-monthly payroll cutoffs for FY {fiscalYear} will be marked CLOSED.</li>
                 <li>
-                  24 new semi-monthly cutoffs (Jan-15 to Dec-31) will be automatically generated for FY{" "}
+                  An Opening Balance cutoff and 24 semi-monthly cutoffs (Jan-15 to Dec-31) will be automatically generated for FY{" "}
                   {fiscalYear + 1}.
                 </li>
                 <li>
-                  Dividend and Patronage balances will be permanently committed to member ledgers.
+                  Elected member carryovers (₱{(preview?.totalCarriedOverAmount || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}) will be reinvested as FY {fiscalYear + 1} opening contribution capital.
                 </li>
                 <li>
-                  Net Credited Savings will update each member's official Statement of Account.
+                  Only the net cash payout (₱{(preview?.totalNetCashPayout || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}) will be deducted from the primary bank account, preserving carried-over funds for Day-1 FIFO Loan Queue liquidity.
                 </li>
               </ul>
 
@@ -884,6 +1274,301 @@ export const DistributionPage: React.FC = () => {
                     </>
                   ) : (
                     "Finalize & Credit Accounts"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3b. MEMBER CARRYOVER ELECTION MODAL */}
+      {carryoverMember && !isMember && !preview?.isAlreadyFinalized && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-4">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-indigo-50/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                  <RefreshCw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">
+                    Carryover Election — {carryoverMember.memberName}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-mono">
+                    {carryoverMember.memberCode} • Roll over into FY {fiscalYear + 1} Opening Capital
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCarryoverMember(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Entitlement Breakdown Mini-Cards */}
+              <div className="grid grid-cols-3 gap-2.5 text-center">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="text-[10px] font-bold uppercase text-slate-500">Ending Capital</div>
+                  <div className="text-xs font-mono font-bold text-slate-900 mt-0.5">
+                    ₱{carryoverMember.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                  <div className="text-[10px] font-bold uppercase text-emerald-700">Dividend</div>
+                  <div className="text-xs font-mono font-bold text-emerald-900 mt-0.5">
+                    ₱{carryoverMember.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-200">
+                  <div className="text-[10px] font-bold uppercase text-blue-700">Patronage</div>
+                  <div className="text-xs font-mono font-bold text-blue-900 mt-0.5">
+                    ₱{carryoverMember.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-slate-900 text-white text-xs">
+                <span className="font-semibold text-slate-300">Gross Entitlement</span>
+                <span className="font-mono font-black text-sm text-emerald-400">
+                  ₱{modalGrossEntitlement.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              {/* Mode Selector */}
+              <div className="space-y-2.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block">
+                  Select Carryover Mode
+                </label>
+
+                {/* Option 1: Full Cash Payout */}
+                <label
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    selectedMode === "None"
+                      ? "bg-slate-50 border-slate-400 ring-1 ring-slate-400/30"
+                      : "bg-white border-slate-200 hover:bg-slate-50/60"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="carryoverMode"
+                    checked={selectedMode === "None"}
+                    onChange={() => setSelectedMode("None")}
+                    className="mt-0.5 text-slate-700 cursor-pointer"
+                  />
+                  <div>
+                    <div className="text-xs font-bold text-slate-900">Full Cash Payout (No Carryover)</div>
+                    <div className="text-[11px] text-slate-500">
+                      Disburse 100% of entitlement in cash; ₱0.00 rolled over to FY {fiscalYear + 1}.
+                    </div>
+                  </div>
+                </label>
+
+                {/* Option 2: Specific Buckets */}
+                <div
+                  className={`p-3 rounded-xl border transition-colors ${
+                    selectedMode === "SpecificBuckets"
+                      ? "bg-indigo-50/50 border-indigo-400 ring-1 ring-indigo-400/30"
+                      : "bg-white border-slate-200 hover:bg-slate-50/60"
+                  }`}
+                >
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="carryoverMode"
+                      checked={selectedMode === "SpecificBuckets"}
+                      onChange={() => setSelectedMode("SpecificBuckets")}
+                      className="mt-0.5 text-indigo-600 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <div className="text-xs font-bold text-slate-900">Specific Buckets</div>
+                      <div className="text-[11px] text-slate-500">
+                        Choose which entitlement buckets to reinvest into FY {fiscalYear + 1} opening capital.
+                      </div>
+                    </div>
+                  </label>
+
+                  {selectedMode === "SpecificBuckets" && (
+                    <div className="mt-3 pl-6 space-y-2 border-t border-indigo-100 pt-3">
+                      <label className="flex items-center justify-between text-xs cursor-pointer">
+                        <span className="flex items-center gap-2 font-medium text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={carryCapital}
+                            onChange={(e) => setCarryCapital(e.target.checked)}
+                            className="rounded border-slate-300 text-indigo-600 w-4 h-4 cursor-pointer"
+                          />
+                          Ending Contribution Capital
+                        </span>
+                        <span className="font-mono font-bold text-slate-900">
+                          ₱{carryoverMember.totalContribution.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </label>
+
+                      <label className="flex items-center justify-between text-xs cursor-pointer">
+                        <span className="flex items-center gap-2 font-medium text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={carryDividend}
+                            onChange={(e) => setCarryDividend(e.target.checked)}
+                            className="rounded border-slate-300 text-indigo-600 w-4 h-4 cursor-pointer"
+                          />
+                          Dividend Earned ({preview?.dividendWeightPercent ?? 65}%)
+                        </span>
+                        <span className="font-mono font-bold text-emerald-700">
+                          ₱{carryoverMember.dividendEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </label>
+
+                      <label className="flex items-center justify-between text-xs cursor-pointer">
+                        <span className="flex items-center gap-2 font-medium text-slate-800">
+                          <input
+                            type="checkbox"
+                            checked={carryPatronage}
+                            onChange={(e) => setCarryPatronage(e.target.checked)}
+                            className="rounded border-slate-300 text-indigo-600 w-4 h-4 cursor-pointer"
+                          />
+                          Patronage Refund ({preview?.patronageWeightPercent ?? 30}%)
+                        </span>
+                        <span className="font-mono font-bold text-blue-700">
+                          ₱{carryoverMember.patronageEarned.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                        </span>
+                      </label>
+
+                      <div className="pt-1 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCarryCapital(true);
+                            setCarryDividend(true);
+                            setCarryPatronage(true);
+                          }}
+                          className="text-[11px] font-bold text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
+                        >
+                          Select All (100% Rollover)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Option 3: Custom Amount */}
+                <div
+                  className={`p-3 rounded-xl border transition-colors ${
+                    selectedMode === "CustomAmount"
+                      ? "bg-violet-50/50 border-violet-400 ring-1 ring-violet-400/30"
+                      : "bg-white border-slate-200 hover:bg-slate-50/60"
+                  }`}
+                >
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="carryoverMode"
+                      checked={selectedMode === "CustomAmount"}
+                      onChange={() => setSelectedMode("CustomAmount")}
+                      className="mt-0.5 text-violet-600 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <div className="text-xs font-bold text-slate-900">Custom Carryover Amount</div>
+                      <div className="text-[11px] text-slate-500">
+                        Specify any exact peso amount up to ₱{modalGrossEntitlement.toLocaleString("en-US", { minimumFractionDigits: 2 })}.
+                      </div>
+                    </div>
+                  </label>
+
+                  {selectedMode === "CustomAmount" && (
+                    <div className="mt-3 pl-6 space-y-2 border-t border-violet-100 pt-3">
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                          ₱
+                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={modalGrossEntitlement}
+                          step="0.01"
+                          value={customAmountInput}
+                          onChange={(e) => setCustomAmountInput(e.target.value)}
+                          placeholder="0.00"
+                          className={`w-full pl-7 pr-3 py-2 text-sm font-mono font-bold bg-white border rounded-xl focus:outline-none focus:ring-2 ${
+                            modalCustomInvalid
+                              ? "border-rose-400 focus:ring-rose-500/20 text-rose-700"
+                              : "border-slate-300 focus:ring-violet-500/20 focus:border-violet-500 text-slate-900"
+                          }`}
+                        />
+                      </div>
+                      {modalCustomInvalid && (
+                        <p className="text-[11px] font-semibold text-rose-600">
+                          Amount must be between ₱0.00 and ₱{modalGrossEntitlement.toLocaleString("en-US", { minimumFractionDigits: 2 })}.
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {[0.25, 0.5, 0.75, 1].map((pct) => (
+                          <button
+                            key={pct}
+                            type="button"
+                            onClick={() =>
+                              setCustomAmountInput((modalGrossEntitlement * pct).toFixed(2))
+                            }
+                            className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-800 transition-colors cursor-pointer"
+                          >
+                            {pct * 100}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Live Split Result */}
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                  <div className="text-[10px] font-bold uppercase text-indigo-700">
+                    Carried Over to FY {fiscalYear + 1}
+                  </div>
+                  <div className="text-lg font-black font-mono text-indigo-950 mt-0.5">
+                    ₱{modalPreviewCarriedOver.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <div className="text-[10px] font-bold uppercase text-emerald-700">
+                    Net Cash Payout
+                  </div>
+                  <div className="text-lg font-black font-mono text-emerald-950 mt-0.5">
+                    ₱{modalPreviewNetCashPayout.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setCarryoverMember(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={modalCustomInvalid || updateCarryoverMutation.isPending}
+                  onClick={handleSaveCarryover}
+                  className={`px-5 py-2 text-xs font-bold text-white rounded-xl transition-all shadow-sm flex items-center gap-2 cursor-pointer ${
+                    !modalCustomInvalid && !updateCarryoverMutation.isPending
+                      ? "bg-indigo-600 hover:bg-indigo-700"
+                      : "bg-slate-300 cursor-not-allowed"
+                  }`}
+                >
+                  {updateCarryoverMutation.isPending ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save Carryover Election"
                   )}
                 </button>
               </div>
@@ -1012,7 +1697,7 @@ export const DistributionPage: React.FC = () => {
                 <div className="bg-slate-900 text-white p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                      Total Net Credited Savings
+                      Total Gross Entitlement
                     </div>
                     <div className="text-[11px] text-slate-300">
                       Capital (₱{soaData.totalContributions.toLocaleString()}) + Surplus (₱
@@ -1026,6 +1711,32 @@ export const DistributionPage: React.FC = () => {
                     })}
                   </div>
                 </div>
+
+                {(soaData.carriedOverAmount || 0) > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="p-3.5 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-between">
+                      <span className="text-xs font-bold text-indigo-900">
+                        Carried Over to FY {soaData.fiscalYear + 1}
+                      </span>
+                      <span className="font-mono font-black text-sm text-indigo-800">
+                        ₱
+                        {(soaData.carriedOverAmount || 0).toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                    <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-900">Net Cash Payout</span>
+                      <span className="font-mono font-black text-sm text-emerald-800">
+                        ₱
+                        {(soaData.netCashPayout ?? soaData.netSavingsCredited).toLocaleString(
+                          "en-US",
+                          { minimumFractionDigits: 2 }
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Authorized Signatures */}
                 <div className="pt-6 sm:pt-8 grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 text-center text-xs border-t border-slate-200">

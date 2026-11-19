@@ -158,6 +158,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.LoanRatio).HasPrecision(10, 8);
             entity.Property(e => e.PatronageEarned).HasPrecision(14, 2);
             entity.Property(e => e.NetSavingsCredited).HasPrecision(14, 2);
+            entity.Property(e => e.CarryoverMode).HasConversion<string>();
+            entity.Property(e => e.CarriedOverAmount).HasPrecision(14, 2);
+            entity.Property(e => e.NetCashPayout).HasPrecision(14, 2);
 
             entity.HasOne(e => e.SurplusDistribution)
                 .WithMany(s => s.MemberLedgers)

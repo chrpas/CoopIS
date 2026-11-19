@@ -46,7 +46,7 @@ public class SettingsController : ControllerBase
         var activeFiscalYear = policy?.CurrentActiveFiscalYear ?? DateTime.UtcNow.Year;
 
         var cutoffCount = await context.CutoffPeriods
-            .CountAsync(c => c.FiscalYear == activeFiscalYear, cancellationToken);
+            .CountAsync(c => c.FiscalYear == activeFiscalYear && !c.IsOpening, cancellationToken);
         if (cutoffCount == 0) cutoffCount = 24;
 
         var version = typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";

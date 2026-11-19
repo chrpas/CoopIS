@@ -189,7 +189,7 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var db = services.GetRequiredService<AppDbContext>();
-        await DbInitializer.InitializeAsync(db, logger);
+        await DbInitializer.InitializeAsync(db, logger, app.Environment.IsProduction());
     }
     catch (Exception ex)
     {

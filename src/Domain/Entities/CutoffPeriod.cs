@@ -9,6 +9,7 @@ public class CutoffPeriod
     public DateTime CutoffDate { get; set; }
     public string Label { get; set; } = string.Empty;
     public int FiscalYear { get; set; }
+    public bool IsOpening { get; set; } = false;
     public bool IsClosed { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

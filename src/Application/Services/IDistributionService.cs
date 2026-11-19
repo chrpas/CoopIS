@@ -8,6 +8,7 @@ namespace CoopIS.Application.Services;
 public interface IDistributionService
 {
     Task<DistributionPreviewDto> GetPreviewAsync(int fiscalYear, CancellationToken cancellationToken = default);
+    Task<MemberAllocationDto> UpdateMemberCarryoverAsync(int fiscalYear, Guid memberId, UpdateMemberCarryoverRequest request, CancellationToken cancellationToken = default);
     Task<DistributionPreviewDto> FinalizeDistributionAsync(int fiscalYear, CancellationToken cancellationToken = default);
     Task<MemberStatementOfAccountDto> GetMemberStatementOfAccountAsync(Guid memberId, int fiscalYear, CancellationToken cancellationToken = default);
 }
