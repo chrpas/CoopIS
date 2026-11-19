@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
@@ -78,10 +78,25 @@ export const DistributionPage: React.FC = () => {
   });
 
   const availableFiscalYears = useMemo(() => {
-    const yearsSet = new Set<number>([2026, 2025, 2024]);
+    const yearsSet = new Set<number>();
     cutoffs.forEach((c) => yearsSet.add(c.fiscalYear));
+    if (yearsSet.size === 0) {
+      yearsSet.add(new Date().getFullYear());
+    }
     return Array.from(yearsSet).sort((a, b) => b - a);
   }, [cutoffs]);
+
+  // Keep selected fiscalYear synced to an available fiscal year (preferring the earliest open year, or latest year)
+  useEffect(() => {
+    if (cutoffs.length === 0) return;
+    if (!availableFiscalYears.includes(fiscalYear)) {
+      const openYears = cutoffs
+        .filter((c) => !c.isClosed)
+        .map((c) => c.fiscalYear)
+        .sort((a, b) => a - b);
+      setFiscalYear(openYears[0] ?? availableFiscalYears[0]);
+    }
+  }, [cutoffs, availableFiscalYears, fiscalYear]);
 
   // 1. Fetch Distribution Preview
   const {
