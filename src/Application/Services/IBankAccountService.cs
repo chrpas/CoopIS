@@ -15,5 +15,6 @@ public interface IBankAccountService
     Task<bool> DeleteAccountAsync(Guid id, CancellationToken cancellationToken = default);
     Task<decimal> GetTotalAvailableLiquidCashAsync(CancellationToken cancellationToken = default);
     Task<LiquiditySummaryDto> GetLiquiditySummaryAsync(CancellationToken cancellationToken = default);
+    Task<LiquiditySummaryDto> UpdateReserveCushionAsync(decimal reserveCushionPercent, string updatedBy, CancellationToken cancellationToken = default);
 }
 

@@ -12,10 +12,20 @@ import {
   Trash2,
   X,
   Lock,
+  SlidersHorizontal,
 } from "lucide-react";
 import { api } from "../../services/api";
 import { BankAccount, LiquiditySummary, CreateBankAccountPayload, AdjustBankBalancePayload } from "../../types";
 import { useToast } from "../../components/ui/Toast";
+
+const formatCurrencyValue = (val: number): string =>
+  val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const parseCurrencyInput = (raw: string): number => {
+  const cleaned = raw.replace(/,/g, "").trim();
+  if (cleaned === "") return NaN;
+  return Number(cleaned);
+};
 
 export const BankAccountsPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -23,6 +33,8 @@ export const BankAccountsPage: React.FC = () => {
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedAccountForReconcile, setSelectedAccountForReconcile] = useState<BankAccount | null>(null);
+  const [isCushionModalOpen, setIsCushionModalOpen] = useState(false);
+  const [cushionInput, setCushionInput] = useState("20");
 
   // Form states for Add Bank Account
   const [addBankName, setAddBankName] = useState("");
@@ -104,6 +116,29 @@ export const BankAccountsPage: React.FC = () => {
     },
   });
 
+  // 6. Update Reserve Cushion Percentage Mutation
+  const updateCushionMutation = useMutation({
+    mutationFn: async (reserveCushionPercent: number) => {
+      const res = await api.put<LiquiditySummary>("/bank-accounts/reserve-cushion", {
+        reserveCushionPercent,
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      showToast(
+        "success",
+        "Reserve Cushion Updated",
+        `Reserve cushion set to ${data.reserveCushionPercent}%. Available lending cash recalculated to ₱${formatCurrencyValue(data.availableLiquidCash)}.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["bank-liquidity"] });
+      queryClient.invalidateQueries({ queryKey: ["loan-queue"] });
+      setIsCushionModalOpen(false);
+    },
+    onError: (err: any) => {
+      showToast("error", "Update Failed", err.response?.data?.message || err.message);
+    },
+  });
+
   const resetAddForm = () => {
     setAddBankName("");
     setAddAccountNumber("");
@@ -114,10 +149,36 @@ export const BankAccountsPage: React.FC = () => {
 
   const handleOpenReconcile = (account: BankAccount) => {
     setSelectedAccountForReconcile(account);
-    setReconcileNewBalance(String(account.currentBalance));
+    setReconcileNewBalance(formatCurrencyValue(account.currentBalance));
     setReconcileReason("Periodic Monthly Bank Statement Reconciliation");
     setReconcileMarkUpdated(true);
   };
+
+  const handleOpenCushionModal = () => {
+    setCushionInput(String(liquidity?.reserveCushionPercent ?? 20));
+    setIsCushionModalOpen(true);
+  };
+
+  const parsedReconcileBalance = parseCurrencyInput(reconcileNewBalance);
+  const isReconcileUnchanged =
+    selectedAccountForReconcile !== null &&
+    !Number.isNaN(parsedReconcileBalance) &&
+    Math.round(parsedReconcileBalance * 100) ===
+      Math.round(selectedAccountForReconcile.currentBalance * 100);
+  const reconcileVariance =
+    selectedAccountForReconcile !== null && !Number.isNaN(parsedReconcileBalance)
+      ? Math.round((parsedReconcileBalance - selectedAccountForReconcile.currentBalance) * 100) / 100
+      : 0;
+
+  const activeCushionPercent = liquidity?.reserveCushionPercent ?? 20;
+  const parsedCushionInput = parseFloat(cushionInput);
+  const isCushionInvalid =
+    Number.isNaN(parsedCushionInput) || parsedCushionInput < 0 || parsedCushionInput > 100;
+  const previewPrimaryBalance = liquidity?.primaryBankBalance ?? 0;
+  const previewCushionAmount = !isCushionInvalid
+    ? Math.round(previewPrimaryBalance * (parsedCushionInput / 100) * 100) / 100
+    : 0;
+  const previewAvailableLending = Math.max(0, previewPrimaryBalance - previewCushionAmount);
 
   return (
     <div className="space-y-6 sm:space-y-8 max-w-7xl mx-auto animation-fade-in pb-12">
@@ -133,7 +194,7 @@ export const BankAccountsPage: React.FC = () => {
             </span>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Registered cooperative banking reserves, liquidity safeguarding (20% reserve cushion), and balance reconciliations.
+            Registered cooperative banking reserves, liquidity safeguarding ({activeCushionPercent}% reserve cushion), and balance reconciliations.
           </p>
         </div>
 
@@ -168,19 +229,30 @@ export const BankAccountsPage: React.FC = () => {
           </p>
         </div>
 
-        {/* 20% Reserve Cushion */}
+        {/* Configurable Reserve Cushion */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-400">
-            <span>20% Reserve Cushion</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <ShieldCheck className="w-4 h-4" />
+            <span>{activeCushionPercent}% Reserve Cushion</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleOpenCushionModal}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-[10px] font-bold normal-case tracking-normal border border-amber-200 transition-colors cursor-pointer"
+                title="Adjust reserve cushion percentage"
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+                Adjust
+              </button>
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
             </div>
           </div>
           <div className="text-2xl font-black text-amber-600 font-mono mt-3">
             ₱{(liquidity?.reserveCushionAmount ?? 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}
           </div>
           <p className="text-[11px] text-slate-500 mt-1">
-            Mandatory liquidity buffer locked for emergency reserves
+            Liquidity buffer locked for emergency reserves (Admin configurable)
           </p>
         </div>
 
@@ -468,15 +540,18 @@ export const BankAccountsPage: React.FC = () => {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                const bal = parseFloat(reconcileNewBalance);
+                const bal = parseCurrencyInput(reconcileNewBalance);
                 if (isNaN(bal) || bal < 0) {
                   showToast("error", "Invalid Balance", "Please enter a non-negative balance.");
+                  return;
+                }
+                if (isReconcileUnchanged) {
                   return;
                 }
                 adjustBalanceMutation.mutate({
                   id: selectedAccountForReconcile.id,
                   payload: {
-                    newBalance: bal,
+                    newBalance: Math.round(bal * 100) / 100,
                     reason: reconcileReason,
                     markReconciled: reconcileMarkUpdated,
                   },
@@ -487,7 +562,7 @@ export const BankAccountsPage: React.FC = () => {
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
                 <span className="text-slate-500">Current Logged Balance:</span>
                 <span className="font-mono font-bold text-slate-900">
-                  ₱{selectedAccountForReconcile.currentBalance.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                  ₱{formatCurrencyValue(selectedAccountForReconcile.currentBalance)}
                 </span>
               </div>
 
@@ -495,15 +570,49 @@ export const BankAccountsPage: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                   New Verified Bank Balance (PHP) *
                 </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  required
-                  value={reconcileNewBalance}
-                  onChange={(e) => setReconcileNewBalance(e.target.value)}
-                  className="w-full text-sm font-mono font-bold px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-emerald-800"
-                />
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-emerald-700 text-sm">
+                    ₱
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    required
+                    value={reconcileNewBalance}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      if (raw === "" || /^[\d,]*\.?\d{0,2}$/.test(raw)) {
+                        setReconcileNewBalance(raw);
+                      }
+                    }}
+                    onBlur={() => {
+                      const parsed = parseCurrencyInput(reconcileNewBalance);
+                      if (!Number.isNaN(parsed) && parsed >= 0) {
+                        setReconcileNewBalance(formatCurrencyValue(parsed));
+                      }
+                    }}
+                    placeholder="0.00"
+                    className="w-full text-sm font-mono font-bold pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600 text-emerald-800"
+                  />
+                </div>
+                {!Number.isNaN(parsedReconcileBalance) && (
+                  <div className="mt-1.5 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500">Variance vs. Logged Balance:</span>
+                    {isReconcileUnchanged ? (
+                      <span className="font-semibold text-slate-500">
+                        No change (₱0.00)
+                      </span>
+                    ) : (
+                      <span
+                        className={`font-mono font-bold ${
+                          reconcileVariance > 0 ? "text-emerald-700" : "text-rose-600"
+                        }`}
+                      >
+                        {reconcileVariance > 0 ? "+" : "-"}₱{formatCurrencyValue(Math.abs(reconcileVariance))}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -542,10 +651,134 @@ export const BankAccountsPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={adjustBalanceMutation.isPending}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                  disabled={adjustBalanceMutation.isPending || isReconcileUnchanged}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={isReconcileUnchanged ? "New Verified Bank Balance is identical to Current Logged Balance" : undefined}
                 >
-                  {adjustBalanceMutation.isPending ? "Updating..." : "Commit Reconciled Balance"}
+                  {adjustBalanceMutation.isPending
+                    ? "Updating..."
+                    : isReconcileUnchanged
+                    ? "Balance Unchanged"
+                    : "Commit Reconciled Balance"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Reserve Cushion Modal */}
+      {isCushionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-amber-600" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Adjust Reserve Cushion</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Controls the liquidity buffer withheld from loan disbursements
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCushionModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (isCushionInvalid) return;
+                updateCushionMutation.mutate(Math.round(parsedCushionInput * 100) / 100);
+              }}
+              className="p-5 space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Reserve Cushion Percentage (0% – 100%) *
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    max="100"
+                    required
+                    value={cushionInput}
+                    onChange={(e) => setCushionInput(e.target.value)}
+                    className={`w-full text-sm font-mono font-bold px-3 pr-8 py-2 bg-slate-50 border rounded-xl focus:bg-white focus:outline-none focus:ring-2 ${
+                      isCushionInvalid
+                        ? "border-rose-400 focus:ring-rose-500/20 text-rose-700"
+                        : "border-slate-200 focus:ring-amber-500/20 focus:border-amber-500 text-slate-900"
+                    }`}
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-400 text-xs">
+                    %
+                  </span>
+                </div>
+                {isCushionInvalid && (
+                  <p className="text-[11px] font-semibold text-rose-600 mt-1">
+                    Enter a valid percentage between 0 and 100.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                  <span className="text-[11px] font-semibold text-slate-400">Presets:</span>
+                  {[0, 10, 15, 20, 25, 30].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => setCushionInput(String(pct))}
+                      className={`px-2.5 py-1 text-xs font-bold rounded-lg border transition-colors cursor-pointer ${
+                        Number(cushionInput) === pct
+                          ? "bg-amber-100 border-amber-400 text-amber-900"
+                          : "bg-slate-100 hover:bg-amber-50 border-slate-200 text-slate-600"
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200">
+                  <div className="text-[10px] font-bold uppercase text-amber-800">
+                    Locked Reserve Buffer
+                  </div>
+                  <div className="text-sm font-black font-mono text-amber-950 mt-0.5">
+                    ₱{formatCurrencyValue(previewCushionAmount)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                  <div className="text-[10px] font-bold uppercase text-emerald-800">
+                    Available for Lending
+                  </div>
+                  <div className="text-sm font-black font-mono text-emerald-950 mt-0.5">
+                    ₱{formatCurrencyValue(previewAvailableLending)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCushionModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCushionInvalid || updateCushionMutation.isPending}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {updateCushionMutation.isPending ? "Saving..." : "Save Reserve Cushion"}
                 </button>
               </div>
             </form>

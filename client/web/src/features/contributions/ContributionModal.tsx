@@ -28,6 +28,7 @@ interface ContributionModalProps {
   onClose: () => void;
   member: CutoffMemberContribution | null;
   cutoff: CutoffPeriod | null;
+  fiscalYear?: number | null;
   onSuccess?: () => void;
 }
 
@@ -36,6 +37,7 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
   onClose,
   member,
   cutoff,
+  fiscalYear,
   onSuccess,
 }) => {
   const { showToast } = useToast();
@@ -80,48 +82,54 @@ export const ContributionModal: React.FC<ContributionModalProps> = ({
   const latePenaltyRatePercent =
     financialPolicy?.activeLoanPolicy.latePenaltyRatePercent ?? 5.0;
 
-  // Filter cutoff periods to ONLY those where the selected member was NOT able to contribute yet
+  const activeFiscalYear = fiscalYear ?? cutoff?.fiscalYear ?? null;
+
+  // Filter cutoff periods to ONLY those in the selected Fiscal Year where the selected member has NOT contributed yet
   const uncontributedCutoffs = useMemo(() => {
     const contributedIds = new Set<string>();
-    const contributedLabels = new Set<string>();
+    const contributedLabelsInYear = new Set<string>();
 
     if (memberDetail?.contributions) {
       memberDetail.contributions.forEach((c) => {
         if ((Number(c.amount) || 0) > 0) {
           if (c.cutoffId) contributedIds.add(c.cutoffId);
-          if (c.cutoffLabel) contributedLabels.add(c.cutoffLabel);
+          if (
+            c.cutoffLabel &&
+            (!activeFiscalYear ||
+              (c.cutoffDate && new Date(c.cutoffDate).getUTCFullYear() === activeFiscalYear))
+          ) {
+            contributedLabelsInYear.add(c.cutoffLabel);
+          }
         }
       });
     } else if (member && (Number(member.amount) || 0) > 0) {
       if (member.cutoffId) contributedIds.add(member.cutoffId);
-      if (member.cutoffLabel) contributedLabels.add(member.cutoffLabel);
+      if (member.cutoffLabel) contributedLabelsInYear.add(member.cutoffLabel);
     }
 
     return [...cutoffs]
-      .filter((c) => !contributedIds.has(c.id) && !contributedLabels.has(c.label))
+      .filter(
+        (c) =>
+          !c.isOpening &&
+          (activeFiscalYear === null || c.fiscalYear === activeFiscalYear) &&
+          !contributedIds.has(c.id) &&
+          !contributedLabelsInYear.has(c.label)
+      )
       .sort(
         (a, b) => new Date(a.cutoffDate).getTime() - new Date(b.cutoffDate).getTime()
       );
-  }, [cutoffs, memberDetail, member]);
+  }, [cutoffs, memberDetail, member, activeFiscalYear]);
 
-  // Default selected cutoff to the current page cutoff (if uncontributed) or the first uncontributed cutoff
+  // Default selected cutoff to the earliest uncontributed cutoff chronologically (even if it is a Closed Cutoff),
+  // so members with delayed contributions automatically settle their oldest unpaid cutoff first.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isLoadingMember || isLoadingCutoffs) return;
     if (uncontributedCutoffs.length > 0) {
-      const currentIsUncontributed =
-        cutoff && uncontributedCutoffs.some((c) => c.id === cutoff.id);
-      if (currentIsUncontributed && cutoff) {
-        setSelectedCutoffId(cutoff.id);
-      } else if (
-        !selectedCutoffId ||
-        !uncontributedCutoffs.some((c) => c.id === selectedCutoffId)
-      ) {
-        setSelectedCutoffId(uncontributedCutoffs[0].id);
-      }
+      setSelectedCutoffId(uncontributedCutoffs[0].id);
     } else {
       setSelectedCutoffId("");
     }
-  }, [isOpen, cutoff, uncontributedCutoffs]);
+  }, [isOpen, member?.memberId, isLoadingMember, isLoadingCutoffs, uncontributedCutoffs]);
 
   // Sync default amount and channel whenever member opens in modal
   useEffect(() => {

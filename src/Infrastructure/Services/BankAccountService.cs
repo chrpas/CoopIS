@@ -19,11 +19,66 @@ public class BankAccountService : IBankAccountService
     private readonly ILogger<BankAccountService> _logger;
 
     public const decimal DefaultReserveCushionPercent = 20.00m;
+    private const string ReserveCushionSettingKey = "bank_account.reserve_cushion_percent";
 
     public BankAccountService(AppDbContext context, ILogger<BankAccountService> logger)
     {
         _context = context;
         _logger = logger;
+    }
+
+    private async Task<decimal> GetReserveCushionPercentAsync(CancellationToken cancellationToken)
+    {
+        var setting = await _context.AppSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Key == ReserveCushionSettingKey, cancellationToken);
+
+        if (setting != null &&
+            decimal.TryParse(setting.Value, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var parsed) &&
+            parsed >= 0m && parsed <= 100m)
+        {
+            return Math.Round(parsed, 2);
+        }
+
+        return DefaultReserveCushionPercent;
+    }
+
+    public async Task<LiquiditySummaryDto> UpdateReserveCushionAsync(
+        decimal reserveCushionPercent,
+        string updatedBy,
+        CancellationToken cancellationToken = default)
+    {
+        if (reserveCushionPercent < 0m || reserveCushionPercent > 100m)
+        {
+            throw new ArgumentException("Reserve cushion percentage must be between 0% and 100%.");
+        }
+
+        decimal normalized = Math.Round(reserveCushionPercent, 2);
+        string valueStr = normalized.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        var existing = await _context.AppSettings
+            .FirstOrDefaultAsync(s => s.Key == ReserveCushionSettingKey, cancellationToken);
+
+        if (existing == null)
+        {
+            _context.AppSettings.Add(new AppSetting
+            {
+                Key = ReserveCushionSettingKey,
+                Value = valueStr,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            existing.Value = valueStr;
+            existing.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Bank reserve cushion updated to {Percent}% by user '{UpdatedBy}'.", normalized, updatedBy);
+
+        return await GetLiquiditySummaryAsync(cancellationToken);
     }
 
     public async Task<List<BankAccountDto>> GetAllAccountsAsync(CancellationToken cancellationToken = default)
@@ -129,7 +184,7 @@ public class BankAccountService : IBankAccountService
             primaryTotal = await _context.BankAccounts.SumAsync(b => b.CurrentBalance, cancellationToken);
         }
 
-        decimal cushionPercent = DefaultReserveCushionPercent;
+        decimal cushionPercent = await GetReserveCushionPercentAsync(cancellationToken);
         decimal reserveCushion = Math.Round(primaryTotal * (cushionPercent / 100m), 2);
         decimal available = Math.Max(0m, primaryTotal - reserveCushion);
 
@@ -144,7 +199,7 @@ public class BankAccountService : IBankAccountService
         var primaryAccount = allAccounts.FirstOrDefault(b => b.IsPrimary) ?? allAccounts.FirstOrDefault();
         decimal primaryBankBalance = primaryAccount?.CurrentBalance ?? 0.00m;
 
-        decimal cushionPercent = DefaultReserveCushionPercent;
+        decimal cushionPercent = await GetReserveCushionPercentAsync(cancellationToken);
         decimal reserveCushionAmount = Math.Round(primaryBankBalance * (cushionPercent / 100m), 2);
         decimal availableLiquidCash = Math.Max(0m, primaryBankBalance - reserveCushionAmount);
 

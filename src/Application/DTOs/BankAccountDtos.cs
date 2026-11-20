@@ -28,6 +28,10 @@ public record AdjustBankBalanceRequest(
     bool MarkReconciled = true
 );
 
+public record UpdateReserveCushionRequest(
+    decimal ReserveCushionPercent
+);
+
 public record LiquiditySummaryDto(
     decimal TotalBankBalance,
     decimal PrimaryBankBalance,

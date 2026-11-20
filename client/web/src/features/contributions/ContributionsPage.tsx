@@ -1474,6 +1474,7 @@ export const ContributionsPage: React.FC = () => {
         onClose={() => setSelectedMemberForModal(null)}
         member={selectedMemberForModal}
         cutoff={selectedCutoff || null}
+        fiscalYear={selectedFiscalYear ?? selectedCutoff?.fiscalYear ?? null}
       />
 
       {/* Drawer: Member Details & Ledger */}

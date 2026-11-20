@@ -32,13 +32,33 @@ public class BankAccountsController : ControllerBase
     }
 
     /// <summary>
-    /// Computes aggregate primary bank balances minus a 20% liquid reserve cushion and active queue demands (Admin only).
+    /// Computes aggregate primary bank balances minus the configured liquid reserve cushion and active queue demands (Admin only).
     /// </summary>
     [HttpGet("liquidity")]
     public async Task<ActionResult<LiquiditySummaryDto>> GetLiquiditySummary(CancellationToken cancellationToken)
     {
         var summary = await _bankAccountService.GetLiquiditySummaryAsync(cancellationToken);
         return Ok(summary);
+    }
+
+    /// <summary>
+    /// Updates the configurable liquid reserve cushion percentage (0% - 100%, Admin only).
+    /// </summary>
+    [HttpPut("reserve-cushion")]
+    public async Task<ActionResult<LiquiditySummaryDto>> UpdateReserveCushion(
+        [FromBody] UpdateReserveCushionRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            string updatedBy = User.Identity?.Name ?? "Admin";
+            var summary = await _bankAccountService.UpdateReserveCushionAsync(request.ReserveCushionPercent, updatedBy, cancellationToken);
+            return Ok(summary);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     /// <summary>
